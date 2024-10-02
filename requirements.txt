@@ -1,0 +1,8 @@
+whisperx
+torch
+transformers
+noisereduce
+webrtcvad
+fastdtw
+pydub
+colorama
