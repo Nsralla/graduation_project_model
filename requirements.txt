@@ -6,3 +6,4 @@ webrtcvad
 fastdtw
 pydub
 colorama
+fastapi
