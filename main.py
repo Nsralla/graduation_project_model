@@ -9,7 +9,7 @@ from extract_features import extract_features_labels
 from IELTSDatasetClass import IELTSDataset
 # Parameters
 class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
-input_size = 768  # Concatenated features
+input_size = 1024  # Concatenated features
 num_channels = [16, 32, 64]
 num_classes = len(class_labels)
 batch_size = 16
@@ -29,25 +29,23 @@ if len(features_list) != len(labels):
 
 
 # Step 2: Pad features to the length of the longest feature
-# Each tensor in features_list is of shape [1, sequence_length, 768]
+# Each tensor in features_list is of shape [1, sequence_length, 1024]
 # Remove the batch dimension (1) for padding
 features_no_batch = [feature.squeeze(0) for feature in features_list]
-
 # Pad features along the time dimension (dim=0) to match the longest sequence
-padded_features = pad_sequence(features_no_batch, batch_first=True, padding_value=0.0)  # Shape: [batch_size, max_seq_len, 768]
+padded_features = pad_sequence(features_no_batch, batch_first=True, padding_value=0.0)  # Shape: [batch_size, max_seq_len, 1024]
 # Convert labels to a tensor for easier use
 labels_tensor = torch.tensor(labels)
 logger.info(f"padded features shape: {padded_features.shape}")
 logger.info(f"labels tensor shape: {labels_tensor.shape}")
 
-
 # # Save features and labels to a file
-torch.save({'features': features_list, 'labels': labels}, 'features_labels.pt')
+# torch.save({'features': features_list, 'labels': labels}, 'features_labels.pt')
 
-import pickle
-# Save features and labels using pickle
-with open('features_labels.pkl', 'wb') as f:
-    pickle.dump({'features': features_list, 'labels': labels}, f)
+# import pickle
+# # Save features and labels using pickle
+# with open('features_labels.pkl', 'wb') as f:
+#     pickle.dump({'features': features_list, 'labels': labels}, f)
 
 #STEP3: CREATE THE DATA SET, SPLIT IT TO TRAINING AND TESTING
 # Create a dataset and split it into training and testing sets

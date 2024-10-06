@@ -1,4 +1,5 @@
 from padding import logger
+from transformers import XLNetTokenizer, XLNetModel
 from append_IELTS_set import get_IELTS_audio_files
 import torch
 import whisperx
@@ -19,24 +20,25 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 def extract_features_labels():
     
       # Load Wav2Vec 2.0 model and processor
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h")
     model = Wav2Vec2Model.from_pretrained(
-        "facebook/wav2vec2-base-960h",
+        "facebook/wav2vec2-large-960h",
         output_hidden_states=True,   # Enable hidden states output
         output_attentions=True       # Enable attentions output
     ).to(device)
+    model.eval()    
     
-    
-    compute_type = "float16"  # Use float16 to reduce memory
+    compute_type = "float32"  # Use float16 to reduce memory
     # Load pre-trained BERT model and tokenizer from Hugging Face Transformers
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    bert_model = BertModel.from_pretrained('bert-base-uncased').to(device)
+    # Replace BertTokenizer and BertModel with XLNetTokenizer and XLNetModel
+    tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
+    bert_model = XLNetModel.from_pretrained('xlnet-large-cased').to(device)
         # Convert the torch.device to a string for compatibility
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
     model_bert = whisperx.load_model("base", device=device_str, compute_type=compute_type)  # Use "base" model for less GPU usage
     
     # Step 1: Extract features and labels for all files
-    for i, audio_file in enumerate(IELTS_FILES[1297:1480]):
+    for i, audio_file in enumerate(IELTS_FILES[1397:1480]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
 
         try:

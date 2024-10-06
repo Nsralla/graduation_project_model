@@ -4,6 +4,7 @@ import gc
 import os
 import librosa
 
+
 # WHISPER + BERT CODE
 def process_text(audio_file_path, tokenizer, bert_model, model):
     """
@@ -19,7 +20,7 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
         raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
     # Load the audio file using librosa
-    audio_data, sample_rate = librosa.load(audio_file_path, sr=16000)
+    audio_data, sample_rate = librosa.load(audio_file_path, sr=16000) # convert audio to numpy array
     total_duration = librosa.get_duration(y=audio_data, sr=sample_rate)
 
     # Define the segment length (1 minute and 30 seconds)
@@ -60,10 +61,8 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
     with torch.no_grad():
         outputs = bert_model(**inputs)
         features = outputs.last_hidden_state.cpu()  # Move features to CPU to free up GPU memory
-
     # Clean up resources to free up memory
     del inputs, outputs
     torch.cuda.empty_cache()
     gc.collect()
-
     return features
