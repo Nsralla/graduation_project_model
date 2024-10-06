@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+# Temporal Convolutional Network definition
 class TemporalConvNet(nn.Module):
     def __init__(self, input_size, num_channels, kernel_size=3, dropout=0.2):
         super(TemporalConvNet, self).__init__()
@@ -22,7 +23,6 @@ class TemporalConvNet(nn.Module):
                 nn.ReLU(),
                 nn.Dropout(dropout)
             ]
-
         self.network = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -52,26 +52,28 @@ class TCNClassifier(nn.Module):
 
         if mask is not None:
             # Resize the mask to match the sequence length of tcn_output
-            # Assuming `mask` was originally of shape [batch_size, original_sequence_length]
             batch_size, _, tcn_sequence_length = tcn_output.shape
 
-            # Resize the mask to match the sequence length after passing through the TCN
-            mask_resized = torch.nn.functional.interpolate(mask.unsqueeze(1).float(), size=tcn_sequence_length, mode='nearest').squeeze(1)
+            # Ensure the mask is properly reshaped and matches the TCN output sequence length
+            if mask.size(1) != tcn_sequence_length:
+                mask_resized = torch.nn.functional.interpolate(mask.unsqueeze(1).float(), size=tcn_sequence_length, mode='nearest').squeeze(1)
+            else:
+                mask_resized = mask  # No resizing needed if lengths already match
 
-            # Adjust mask shape to match TCN output
-            mask_resized = mask_resized.unsqueeze(1)  # Shape: [batch_size, 1, tcn_sequence_length]
+            # Adjust mask shape to match TCN output: [batch_size, 1, tcn_sequence_length]
+            mask_resized = mask_resized.unsqueeze(1).expand(-1, tcn_output.size(1), -1)  # Broadcast to match channels
 
             # Apply mask to the TCN output to zero out padded positions
-            tcn_output = tcn_output * mask_resized  # Broadcasting mask over channel dimension
+            tcn_output = tcn_output * mask_resized  # Shape: [batch_size, num_channels[-1], tcn_sequence_length]
 
             # Compute the valid length for each sequence (sum over sequence length dimension)
-            valid_lengths = mask_resized.sum(dim=2)  # Shape: [batch_size, 1]
+            valid_lengths = mask_resized[:, 0, :].sum(dim=1)  # Shape: [batch_size]
 
             # Avoid division by zero: set any zero lengths to 1 to avoid NaNs
             valid_lengths = valid_lengths.clamp(min=1)
 
             # Global average pooling over the sequence length while considering the mask
-            tcn_output = tcn_output.sum(dim=2) / valid_lengths.squeeze(1)  # Shape: [batch_size, num_channels[-1]]
+            tcn_output = tcn_output.sum(dim=2) / valid_lengths.unsqueeze(1)  # Shape: [batch_size, num_channels[-1]]
         else:
             # Global average pooling over the sequence length if no mask is provided
             tcn_output = tcn_output.mean(dim=2)  # Shape: [batch_size, num_channels[-1]]

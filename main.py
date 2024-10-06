@@ -34,6 +34,14 @@ if len(features_list) != len(labels):
 features_no_batch = [feature.squeeze(0) for feature in features_list]
 # Pad features along the time dimension (dim=0) to match the longest sequence
 padded_features = pad_sequence(features_no_batch, batch_first=True, padding_value=0.0)  # Shape: [batch_size, max_seq_len, 1024]
+# STEP 2.1: USE MASKING
+# Assume padded_features is of shape [batch_size, max_seq_len, feature_dim]
+batch_size, max_seq_len, feature_dim = padded_features.size()
+# Create a mask indicating where the real data is
+mask = (padded_features.sum(dim=2) != 0).int()  # Shape: [batch_size, max_seq_len]
+# If the sum of a feature vector along the feature dimension is zero, it's likely padding
+print("Mask shape:", mask.shape)
+print("Mask:", mask)  # 1 where there's data, 0 where there's padding
 # Convert labels to a tensor for easier use
 labels_tensor = torch.tensor(labels)
 logger.info(f"padded features shape: {padded_features.shape}")
@@ -58,24 +66,7 @@ logger.debug(f"Dataset split into train size: {train_size}, test size: {test_siz
 
 # STEP4:
 # Define batch size
-batch_size = 16
-# Create DataLoaders for training and testing sets
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-# Optional: log DataLoader creation
-logger.debug(f"Train loader and test loader created with batch size: {batch_size}")
-
-# # Initialize the model, loss function, and optimizer
-model = TCNClassifier(input_size, num_channels, num_classes).to(device)
-criterion = torch.nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-logger.info(f"Model initialized with input size: {input_size}, learning rate: {learning_rate}")
-
-
-#STEP5:
-batch_size = 16
-
-# Create DataLoaders for training and testing sets
+batch_size = 16# Create DataLoaders for training and testing sets
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
@@ -100,14 +91,21 @@ for epoch in range(epochs):
         # Extract features and labels from the batch
         batch_features = batch['feature'].to(device)  # Shape: [batch_size, sequence_length, input_size]
         batch_labels = batch['label'].to(device)      # Shape: [batch_size]
+        logger.debug(f"Batch features shape: {batch_features.shape}, Batch labels shape: {batch_labels.shape}")
+
+        # Create the mask
+        mask = (batch_features.sum(dim=2) != 0).int()  # Shape: [batch_size, sequence_length]
+        logger.debug(f"Mask shape: {mask.shape}")
 
         # Reshape features to [batch_size, input_size, sequence_length] as required by the model
         batch_features = batch_features.permute(0, 2, 1)
+        logger.debug(f"Batch features after permutation shape: {batch_features.shape}")
 
-        # Forward pass
+        # Forward pass with mask
         try:
-            # Forward pass through the model
-            outputs = model(batch_features)
+            # Forward pass through the model with the mask
+            outputs = model(batch_features, mask=mask)
+            logger.debug(f"Outputs shape after forward pass: {outputs.shape}")
 
             # Calculate loss
             loss = criterion(outputs, batch_labels)
@@ -115,6 +113,7 @@ for epoch in range(epochs):
 
         except Exception as e:
             logger.error(f"Error during forward pass: {e}")
+            logger.debug(f"Mask shape: {mask.shape}, Batch features shape after permutation: {batch_features.shape}")
             continue
 
         # Backward pass and optimization
@@ -128,18 +127,15 @@ for epoch in range(epochs):
     avg_loss = total_loss / len(train_loader)
     logger.info(f"Epoch [{epoch+1}/{epochs}], Average Loss: {avg_loss:.4f}")
 
-
-
 # Save the trained model
 model_path = "trained_tcn_model.pth"
 torch.save(model.state_dict(), model_path)
 logger.info(f"Model saved to {model_path}")
-# Evaluation loop
 
+# Evaluation loop
 model.eval()
 correct = 0
 total = 0
-
 with torch.no_grad():
     for batch_idx, batch in enumerate(test_loader):
         logger.debug(f"Evaluating Batch [{batch_idx+1}], Feature Shape: {batch['feature'].shape}, Label Shape: {batch['label'].shape}")
@@ -147,20 +143,25 @@ with torch.no_grad():
         # Extract features and labels from the batch
         batch_features = batch['feature'].to(device)  # Shape: [batch_size, max_seq_len, input_size]
         batch_labels = batch['label'].to(device)      # Shape: [batch_size]
+        logger.debug(f"Batch features shape: {batch_features.shape}, Batch labels shape: {batch_labels.shape}")
+
+        # Create the mask
+        mask = (batch_features.sum(dim=2) != 0).int()  # Shape: [batch_size, max_seq_len]
+        logger.debug(f"Mask shape: {mask.shape}")
 
         # Reshape features to [batch_size, input_size, max_seq_len] as required by the model
         batch_features = batch_features.permute(0, 2, 1)
+        logger.debug(f"Batch features after permutation shape: {batch_features.shape}")
 
-        # Forward pass
+        # Forward pass with mask
         try:
-            # Forward pass through the model
-            outputs = model(batch_features)
-            
-            logger.debug(f"Evaluation forward pass completed. Outputs shape: {outputs.shape}")
+            # Forward pass through the model with the mask
+            outputs = model(batch_features, mask=mask)
+            logger.debug(f"Outputs shape after forward pass: {outputs.shape}")
 
             # Determine predicted labels
             _, predicted = torch.max(outputs, 1)
-            logger.debug(f"Predicted labels: {predicted}")
+            logger.debug(f"Predicted labels: {predicted}, Batch labels: {batch_labels}")
 
             # Calculate accuracy
             correct += (predicted == batch_labels).sum().item()
@@ -168,6 +169,7 @@ with torch.no_grad():
 
         except Exception as e:
             logger.error(f"Error during evaluation: {e}")
+            logger.debug(f"Mask shape: {mask.shape}, Batch features shape after permutation: {batch_features.shape}")
             continue
 
 # Calculate and log accuracy
