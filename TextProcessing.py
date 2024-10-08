@@ -1,11 +1,9 @@
-import whisperx
 import torch
 import gc
 import os
 import librosa
+from padding import logger
 
-
-# WHISPER + BERT CODE
 def process_text(audio_file_path, tokenizer, bert_model, model):
     """
     Main function to transcribe audio using WhisperX model,
@@ -13,18 +11,18 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
     """
     # Set the device to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 4  # Adjust according to your system memory
+    batch_size = 1  # Reduce the batch size to minimize memory usage
 
     # Check if the specified audio file exists
     if not os.path.isfile(audio_file_path):
         raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
     # Load the audio file using librosa
-    audio_data, sample_rate = librosa.load(audio_file_path, sr=16000) # convert audio to numpy array
+    audio_data, sample_rate = librosa.load(audio_file_path, sr=16000)  # Convert audio to numpy array
     total_duration = librosa.get_duration(y=audio_data, sr=sample_rate)
 
     # Define the segment length (1 minute and 30 seconds)
-    segment_length = 90  # seconds
+    segment_length = 60  # seconds
 
     # If the audio duration is longer than the segment length, split it
     segments = []
@@ -44,14 +42,21 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
     # Process each segment
     for segment in segments:
         # Transcribe the audio segment
-        result = model.transcribe(segment, batch_size=batch_size)
+        try:
+            result = model.transcribe(segment, batch_size=batch_size)
+        except RuntimeError as e:
+            logger.error(f"RuntimeError during transcription: {e}")
+            torch.cuda.empty_cache()
+            gc.collect()
+            continue
+
         # Extract the transcribed text from the segments
         segment_text = " ".join([seg['text'] for seg in result["segments"]])
         extracted_text += " " + segment_text
 
-    # Clear GPU memory after transcription
-    torch.cuda.empty_cache()
-    gc.collect()
+        # Free up GPU memory after each segment processing
+        torch.cuda.empty_cache()
+        gc.collect()
 
     # Tokenize the extracted text and move to the correct device
     inputs = tokenizer(extracted_text, return_tensors='pt', padding=True, truncation=True, max_length=512)
@@ -61,8 +66,13 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
     with torch.no_grad():
         outputs = bert_model(**inputs)
         features = outputs.last_hidden_state.cpu()  # Move features to CPU to free up GPU memory
+        
+    # Extract [CLS] token (usually the first token)
+    cls_token = features[:, 0, :]  # Shape: [batch_size, feature_dim]
+        
     # Clean up resources to free up memory
     del inputs, outputs
     torch.cuda.empty_cache()
     gc.collect()
-    return features
+
+    return features, cls_token

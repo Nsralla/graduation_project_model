@@ -15,10 +15,8 @@ num_classes = len(class_labels)
 batch_size = 16
 epochs = 15
 learning_rate = 0.001
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
-
 #STEP1: EXTRACT FEATURES AND LABELS FROM AUDIOS.
 features_list, labels = extract_features_labels()
 
@@ -47,13 +45,14 @@ labels_tensor = torch.tensor(labels)
 logger.info(f"padded features shape: {padded_features.shape}")
 logger.info(f"labels tensor shape: {labels_tensor.shape}")
 
-# # Save features and labels to a file
-# torch.save({'features': features_list, 'labels': labels}, 'features_labels.pt')
+# Save features and labels to a file
+data_to_save = {'features': features_list, 'labels': labels}
+torch.save(data_to_save, 'features_labels.pt')
 
-# import pickle
-# # Save features and labels using pickle
-# with open('features_labels.pkl', 'wb') as f:
-#     pickle.dump({'features': features_list, 'labels': labels}, f)
+import pickle
+# Save features and labels using pickle
+with open('features_labels.pkl', 'wb') as f:
+    pickle.dump({'features': features_list, 'labels': labels}, f)
 
 #STEP3: CREATE THE DATA SET, SPLIT IT TO TRAINING AND TESTING
 # Create a dataset and split it into training and testing sets

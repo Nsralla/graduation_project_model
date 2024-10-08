@@ -6,3 +6,6 @@ audios/manually/ICNALE
 features_labels.pt
 features_labels.pkl
 trained_tcn_model.pth
+audios
+all_cls_tokens_concatenated.pkl
+all_cls_tokens_concatenated.pt

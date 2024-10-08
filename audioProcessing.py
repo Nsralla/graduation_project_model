@@ -12,6 +12,7 @@ import webrtcvad
 import numpy as np
 import torch
 import gc
+from padding import  logger
 
 def reduce_noise_in_audio(input_file_path):
     """
@@ -160,10 +161,18 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
         # Move inputs to the correct device
         input_values = inputs.input_values.to(device)
 
-        # Extract features
-        with torch.no_grad():
-            outputs = model(input_values)
-            features = outputs.last_hidden_state.cpu()  # Move features to CPU to save GPU memory
+        try:
+            with torch.no_grad():
+                outputs = model(input_values)
+                features = outputs.last_hidden_state.cpu()  # Move features to CPU to save GPU memory
+                logger.debug(f"Extracted features shape: {features.shape}")
+
+            # Extract [CLS] token (usually the first token)
+            cls_token = features[:, 0, :]  # Shape: [batch_size, feature_dim]
+
+        except Exception as e:
+            logger.error(f"Error during feature extraction: {e}")
+            continue
 
         # Collect features from each segment
         features_list.append(features)
@@ -176,7 +185,7 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
     # Concatenate features from all segments along the time dimension
     final_features = torch.cat(features_list, dim=1) if len(features_list) > 1 else features_list[0]
 
-    return final_features
+    return final_features, cls_token
 
 def process_single_audio(input_file_path, processor, model):
     """

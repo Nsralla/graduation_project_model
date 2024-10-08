@@ -1,6 +1,6 @@
 import os
 def get_IELTS_audio_files():
-    audio_directory = r"audios\manually"
+    audio_directory = r"audios"
     audio_files = []
 # Iterate through the directory and add .mp3 files to the list
     for file_name in os.listdir(audio_directory):
