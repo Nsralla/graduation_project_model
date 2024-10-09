@@ -50,7 +50,3 @@ def extract_label_from_path(file_path):
         return score
     else:
         raise ValueError(f"Score not found in the file path: {file_path}")
-
-# Examples:
-# audios\manually\SM_THA_PTJ2_047_B2_0.mp3 -> B2
-# audios\manually\video133_c2.mp3 -> C2
