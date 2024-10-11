@@ -5,7 +5,7 @@ from padding import logger
 from cnn import FullyConnectedClassifier
 
 # Define class labels and hyperparameters
-class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 input_size = 2048  # Concatenated features
 num_hidden_units = 512  # Number of hidden units in the hidden layer
 num_classes = len(class_labels)

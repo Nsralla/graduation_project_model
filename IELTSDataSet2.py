@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 
 # Define class labels and create a mapping from labels to indices
-class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 label_to_index = {label: idx for idx, label in enumerate(class_labels)}
 
 class IELTSDataSetForCLS(Dataset):

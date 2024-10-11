@@ -9,7 +9,7 @@ from extract_features import extract_features_labels
 from IELTSDatasetClass import IELTSDataset
 # Parameters
 url = 'features_extracted';
-class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 input_size = 1024  # Concatenated features
 num_channels = [16, 32, 64]
 num_classes = len(class_labels)

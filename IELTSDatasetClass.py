@@ -39,13 +39,20 @@ class IELTSDataset(Dataset):
 
     
 import re
+import re
 
 def extract_label_from_path(file_path):
-    """Extracts the score from the file path."""
+    """Extracts the score from the file path, handling B1_1 and B1_2."""
     # Use a regex to match the score pattern (A1, A2, B1, B2, C1, C2)
     match = re.search(r'([A-Ca-c][1-2])', file_path)
     if match:
         score = match.group(1).upper()  # Extract and convert to uppercase
+        if score == 'B1':
+            # Check if '_1' or '_2' exists in the file path for B1_1 and B1_2
+            if re.search(r'_1\b', file_path):
+                score = 'B1_1'
+            else:
+                score = 'B1_2'  # Default to B1_2 if no specific number is found
         print("Collected score:", score)
         return score
     else:

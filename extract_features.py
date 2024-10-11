@@ -15,7 +15,7 @@ from padding import logger
 
 # Collect all audio file paths and extract their labels
 IELTS_FILES = get_IELTS_audio_files()
-class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
+class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 url = 'cls_tokens_extracted'
 
@@ -37,12 +37,13 @@ def extract_features_labels():
     tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
     bert_model = XLNetModel.from_pretrained('xlnet-large-cased').to(device)
 
-    compute_type = "float32"  # Use float16 to reduce memory
+    compute_type = "float16"  # Use float16 to reduce memory
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    model_bert = whisperx.load_model("base", device=device_str, compute_type=compute_type)
+    torch.cuda.empty_cache()
+    model_bert = whisperx.load_model("small", device=device_str, compute_type="float32")
 
     # Step 1: Extract features and labels for all files
-    for i, audio_file in enumerate(IELTS_FILES[0:500]):
+    for i, audio_file in enumerate(IELTS_FILES[260:261]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
             # Extract the label from the audio file path
@@ -54,7 +55,7 @@ def extract_features_labels():
 
            
             # Step 1.1: Process Audio
-            audio_features, audio_cls_token, normalized_audio = process_single_audio(audio_file, processor, model)
+            audio_features, audio_cls_token = process_single_audio(audio_file, processor, model)
             audio_features = audio_features.to(device)
             audio_cls_token = audio_cls_token.cpu()  # Move to CPU after extracting
 
@@ -67,7 +68,7 @@ def extract_features_labels():
             
             
             # Step 1.2: Process Text
-            text_features, text_cls_token = process_text( tokenizer, bert_model, model_bert, normalized_audio)
+            text_features, text_cls_token = process_text(audio_file,tokenizer, bert_model, model_bert)
             text_features = text_features.to(device)
             text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
             logger.info(f"Text features extracted. Shape: {text_features.shape}")

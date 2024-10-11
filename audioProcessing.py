@@ -220,4 +220,4 @@ def process_single_audio(input_file_path, processor, model):
     # Extract features using Wav2Vec2
     features,  final_cls_token = extract_features_wav2vec2(normalized_audio, sample_rate, processor, model)
 
-    return features, final_cls_token, normalized_audio
+    return features, final_cls_token
