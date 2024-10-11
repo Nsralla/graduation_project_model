@@ -4,25 +4,26 @@ import os
 import librosa
 from padding import logger
 
-def process_text(audio_file_path, tokenizer, bert_model, model):
+def process_text( tokenizer, bert_model, model, normalized_audio ):
     """
     Main function to transcribe audio using WhisperX model,
     and extract features from the text using BERT.
     """
     # Set the device to GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    batch_size = 1  # Reduce the batch size to minimize memory usage
+    batch_size = 1 # Reduce the batch size to minimize memory usage
 
-    # Check if the specified audio file exists
-    if not os.path.isfile(audio_file_path):
-        raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+    # # Check if the specified audio file exists
+    # if not os.path.isfile(audio_file_path):
+    #     raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
 
     # Load the audio file using librosa
-    audio_data, sample_rate = librosa.load(audio_file_path, sr=16000)  # Convert audio to numpy array
-    total_duration = librosa.get_duration(y=audio_data, sr=sample_rate)
-
-    # Define the segment length (1 minute and 30 seconds)
-    segment_length = 60  # seconds
+    # audio_data, sample_rate = librosa.load(audio_file_path, sr=16000)  # Convert audio to numpy array
+    sample_rate = 16000
+    total_duration = librosa.get_duration(y=normalized_audio, sr=sample_rate)
+    logger.info(f"Total duration of the audio: {total_duration} seconds")
+    # Define the segment length ( 30 seconds)
+    segment_length = 30  # seconds
 
     # If the audio duration is longer than the segment length, split it
     segments = []
@@ -31,10 +32,10 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
         for i in range(num_segments):
             start = i * segment_length
             end = min((i + 1) * segment_length, total_duration)
-            segment = audio_data[int(start * sample_rate):int(end * sample_rate)]
+            segment = normalized_audio[int(start * sample_rate):int(end * sample_rate)]
             segments.append(segment)
     else:
-        segments.append(audio_data)
+        segments.append(normalized_audio)
 
     # Initialize an empty string to store the extracted text
     extracted_text = ""
@@ -57,6 +58,8 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
         # Free up GPU memory after each segment processing
         torch.cuda.empty_cache()
         gc.collect()
+    logger.info(f"EXTRACTED TEXT: {extracted_text}")
+    logger.info("-----------------------------------------------------");
 
     # Tokenize the extracted text and move to the correct device
     inputs = tokenizer(extracted_text, return_tensors='pt', padding=True, truncation=True, max_length=512)

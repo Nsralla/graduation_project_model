@@ -17,6 +17,7 @@ from padding import logger
 IELTS_FILES = get_IELTS_audio_files()
 class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+url = 'cls_tokens_extracted'
 
 def extract_features_labels():
     features_list = []
@@ -41,33 +42,38 @@ def extract_features_labels():
     model_bert = whisperx.load_model("base", device=device_str, compute_type=compute_type)
 
     # Step 1: Extract features and labels for all files
-    for i, audio_file in enumerate(IELTS_FILES):
+    for i, audio_file in enumerate(IELTS_FILES[0:500]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
             # Extract the label from the audio file path
             label = extract_label_from_path(audio_file)
             label_index = class_labels.index(label)
+            logger.info("-----------------------------------------------------");
             logger.info(f"Extracted label: {label}, Label index: {label_index}")
+            logger.info("-----------------------------------------------------");
 
-           # Step 2: Process Text
-            text_features, text_cls_token = process_text(audio_file, tokenizer, bert_model, model_bert)
-            text_features = text_features.to(device)
-            text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
-            logger.info(f"Text features extracted. Shape: {text_features.shape}")
-            logger.info(f"Text CLS token shape: {text_cls_token.shape}")
-
-            # Step 3: Process Audio
-            audio_features, audio_cls_token = process_single_audio(audio_file, processor, model)
+           
+            # Step 1.1: Process Audio
+            audio_features, audio_cls_token, normalized_audio = process_single_audio(audio_file, processor, model)
             audio_features = audio_features.to(device)
             audio_cls_token = audio_cls_token.cpu()  # Move to CPU after extracting
 
             if audio_features.dim() == 2:
                 audio_features = audio_features.unsqueeze(0)
-
+            logger.info("-----------------------------------------------------");    
             logger.info(f"Audio features extracted. Shape: {audio_features.shape}")
             logger.info(f"Audio CLS token shape: {audio_cls_token.shape}")
+            logger.info("-----------------------------------------------------");
+            
+            
+            # Step 1.2: Process Text
+            text_features, text_cls_token = process_text( tokenizer, bert_model, model_bert, normalized_audio)
+            text_features = text_features.to(device)
+            text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
+            logger.info(f"Text features extracted. Shape: {text_features.shape}")
+            logger.info(f"Text CLS token shape: {text_cls_token.shape}")
 
-            # Step 3.1: Concatenate the CLS tokens
+            # Step 1.3: Concatenate the CLS tokens
             concatenated_cls = torch.cat((text_cls_token, audio_cls_token), dim=1)  # This works fine on CPU
             all_concatenated_cls_tokens.append({
                 'concatenated_cls': concatenated_cls,
@@ -100,10 +106,10 @@ def extract_features_labels():
         torch.cuda.empty_cache()
 
 
-    # After the loop finishes, save the accumulated concatenated CLS tokens to a file
-    torch.save(all_concatenated_cls_tokens, 'all_cls_tokens_concatenated.pt')
+    torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated1.pt')
 
-    with open('all_cls_tokens_concatenated.pkl', 'wb') as f:
+    with open(f'{url}\\full_all_cls_tokens_concatenated1.pkl', 'wb') as f:
         pickle.dump(all_concatenated_cls_tokens, f)
+
 
     return features_list, labels

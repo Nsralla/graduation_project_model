@@ -8,6 +8,7 @@ from torch.nn.utils.rnn import pad_sequence
 from extract_features import extract_features_labels
 from IELTSDatasetClass import IELTSDataset
 # Parameters
+url = 'features_extracted';
 class_labels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']
 input_size = 1024  # Concatenated features
 num_channels = [16, 32, 64]
@@ -16,11 +17,8 @@ batch_size = 16
 epochs = 15
 learning_rate = 0.001
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(device)
 #STEP1: EXTRACT FEATURES AND LABELS FROM AUDIOS.
 features_list, labels = extract_features_labels()
-
-
 if len(features_list) != len(labels):
     logger.error(f"Inconsistent dataset sizes: features_list={len(features_list)}, labels={len(labels)}")
     raise ValueError("Mismatch between features and labels.")
@@ -47,11 +45,11 @@ logger.info(f"labels tensor shape: {labels_tensor.shape}")
 
 # Save features and labels to a file
 data_to_save = {'features': features_list, 'labels': labels}
-torch.save(data_to_save, 'features_labels.pt')
+torch.save(data_to_save, f'{url}\\full_features_labels1.pt')
 
 import pickle
 # Save features and labels using pickle
-with open('features_labels.pkl', 'wb') as f:
+with open(f'{url}\\full_features_labels.pkl1', 'wb') as f:
     pickle.dump({'features': features_list, 'labels': labels}, f)
 
 #STEP3: CREATE THE DATA SET, SPLIT IT TO TRAINING AND TESTING

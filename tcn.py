@@ -20,7 +20,7 @@ class TemporalConvNet(nn.Module):
                     padding=(kernel_size - 1) * dilation_size, 
                     dilation=dilation_size
                 ),
-                nn.batchNorm1d(out_channels),
+                nn.BatchNorm1d(out_channels),
                 nn.ReLU(),
                 nn.Dropout(dropout)
             ]

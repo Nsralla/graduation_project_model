@@ -4,13 +4,7 @@ import os
 import webrtcvad
 import numpy as np
 import torch
-import gc
-import noisereduce as nr
-import librosa
-import os
 import webrtcvad
-import numpy as np
-import torch
 import gc
 from padding import  logger
 
@@ -80,27 +74,35 @@ def apply_vad(audio_data, sample_rate):
     """
     # Initialize VAD
     vad = webrtcvad.Vad()
-    vad.set_mode(2)  # Set aggressiveness mode
+    vad.set_mode(2)  # Set aggressiveness mode (0-3, higher is more aggressive)
 
     # Convert audio to 16-bit PCM format required by webrtcvad
     audio_pcm = (audio_data * 32768).astype(np.int16)
 
     # Split audio into 30ms frames (required by VAD)
-    frame_duration = 30  # in ms
-    frame_size = int(sample_rate * frame_duration / 1000)
+    frame_duration = 30  # in milliseconds
+    frame_size = int(sample_rate * frame_duration / 1000)  # Calculate frame size
 
     # Apply VAD to each frame and concatenate the results
     vad_audio = np.array([], dtype=np.int16)
-    for i in range(0, len(audio_pcm) - frame_size, frame_size):
+    
+    for i in range(0, len(audio_pcm), frame_size):
         frame = audio_pcm[i:i + frame_size]
-        if len(frame) == frame_size:
-            is_speech = vad.is_speech(frame.tobytes(), sample_rate)
-            if is_speech:
-                vad_audio = np.concatenate((vad_audio, frame))
 
-    # Convert back to floating-point format
+        # Check if the frame size is incomplete (i.e., smaller than expected)
+        if len(frame) < frame_size:
+            break  # Ignore incomplete frame at the end
+        
+        # Check if the frame contains speech
+        is_speech = vad.is_speech(frame.tobytes(), sample_rate)
+        
+        if is_speech:
+            vad_audio = np.concatenate((vad_audio, frame))
+
+    # Convert back to floating-point format (from PCM 16-bit format)
     vad_audio_float = vad_audio.astype(np.float32) / 32768
     return vad_audio_float
+
 
 def normalize_audio(audio_data, target_peak=0.95):
     """
@@ -147,6 +149,7 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
     ]
 
     features_list = []
+    cls_token_list = []  # To store CLS tokens from each segment
 
     # Process each segment separately
     for segment in segments:
@@ -165,7 +168,8 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
             with torch.no_grad():
                 outputs = model(input_values)
                 features = outputs.last_hidden_state.cpu()  # Move features to CPU to save GPU memory
-                logger.debug(f"Extracted features shape: {features.shape}")
+                logger.debug(f"AUDIO Extracted features shape: {features.shape}")
+                logger.info("-----------------------------------------------------");
 
             # Extract [CLS] token (usually the first token)
             cls_token = features[:, 0, :]  # Shape: [batch_size, feature_dim]
@@ -173,7 +177,9 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
         except Exception as e:
             logger.error(f"Error during feature extraction: {e}")
             continue
-
+        
+          # Collect CLS token from each segment
+        cls_token_list.append(cls_token)
         # Collect features from each segment
         features_list.append(features)
 
@@ -181,11 +187,19 @@ def extract_features_wav2vec2(audio_data, sample_rate, processor, model):
         del inputs, outputs
         torch.cuda.empty_cache()
         gc.collect()
+    
+    # If there are multiple CLS tokens, we average them to get a single one
+    final_cls_token = torch.mean(torch.stack(cls_token_list), dim=0, keepdim=True)
+    logger.info(f"Final CLS token shape: {final_cls_token.shape}")
+    logger.info("-----------------------------------------------------");
+        
+    # Use squeeze to remove the extra dimension
+    final_cls_token = final_cls_token.squeeze(0)  # This will change the shape from [1, 1, 1024] to [1, 1024]
 
     # Concatenate features from all segments along the time dimension
     final_features = torch.cat(features_list, dim=1) if len(features_list) > 1 else features_list[0]
 
-    return final_features, cls_token
+    return final_features, final_cls_token
 
 def process_single_audio(input_file_path, processor, model):
     """
@@ -204,6 +218,6 @@ def process_single_audio(input_file_path, processor, model):
         normalized_audio = np.array(normalized_audio, dtype=np.float32)
 
     # Extract features using Wav2Vec2
-    features = extract_features_wav2vec2(normalized_audio, sample_rate, processor, model)
+    features,  final_cls_token = extract_features_wav2vec2(normalized_audio, sample_rate, processor, model)
 
-    return features
+    return features, final_cls_token, normalized_audio
