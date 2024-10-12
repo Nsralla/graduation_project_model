@@ -39,7 +39,7 @@ def process_text(audio_file_path, tokenizer, bert_model, model):
     for segment in segments:
         # Transcribe the audio segment
         try:
-            result = model.transcribe(segment, batch_size=batch_size)
+            result = model.transcribe(segment, batch_size=batch_size, language="en")
         except RuntimeError as e:
             logger.error(f"RuntimeError during transcription: {e}")
             torch.cuda.empty_cache()

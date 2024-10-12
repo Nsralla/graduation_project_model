@@ -39,26 +39,24 @@ def extract_features_labels():
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
     model_bert = whisperx.load_model("small", device=device_str, compute_type=compute_type)
 
-    # Step 1: Extract features and labels for all files
     for i, audio_file in enumerate(IELTS_FILES[501:1000]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
-            # Extract the label from the audio file path
             label = extract_label_from_path(audio_file)
             label_index = class_labels.index(label)
             logger.info(f"Extracted label: {label}, Label index: {label_index}")
 
-           # Step 2: Process Text
+            # Step 2: Process Text
             text_features, text_cls_token = process_text(audio_file, tokenizer, bert_model, model_bert)
             text_features = text_features.to(device)
-            text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
+            text_cls_token = text_cls_token.cpu().detach()  # Move to CPU and detach
             logger.info(f"Text features extracted. Shape: {text_features.shape}")
             logger.info(f"Text CLS token shape: {text_cls_token.shape}")
 
             # Step 3: Process Audio
             audio_features, audio_cls_token = process_single_audio(audio_file, processor, model)
             audio_features = audio_features.to(device)
-            audio_cls_token = audio_cls_token.cpu()  # Move to CPU after extracting
+            audio_cls_token = audio_cls_token.cpu().detach()  # Move to CPU and detach
 
             if audio_features.dim() == 2:
                 audio_features = audio_features.unsqueeze(0)
@@ -66,8 +64,8 @@ def extract_features_labels():
             logger.info(f"Audio features extracted. Shape: {audio_features.shape}")
             logger.info(f"Audio CLS token shape: {audio_cls_token.shape}")
 
-            # Step 3.1: Concatenate the CLS tokens
-            concatenated_cls = torch.cat((text_cls_token, audio_cls_token), dim=1)  # This works fine on CPU
+            # Step 3.1: Concatenate the CLS tokens on the CPU
+            concatenated_cls = torch.cat((text_cls_token, audio_cls_token), dim=1)
             all_concatenated_cls_tokens.append({
                 'concatenated_cls': concatenated_cls,
                 'label': label
@@ -77,11 +75,11 @@ def extract_features_labels():
 
             # Step 4: Downsample Audio Features
             pooling_layer = nn.AdaptiveAvgPool1d(text_features.shape[1])
-            audio_features_downsampled = pooling_layer(audio_features.permute(0, 2, 1)).permute(0, 2, 1)
+            audio_features_downsampled = pooling_layer(audio_features.permute(0, 2, 1)).permute(0, 2, 1).detach().cpu()
             logger.info(f"Audio features after pooling. Shape: {audio_features_downsampled.shape}")
 
             # Step 5: Concatenate Text and Audio Features
-            concatenated_features = torch.cat((text_features, audio_features_downsampled), dim=1)
+            concatenated_features = torch.cat((text_features.cpu(), audio_features_downsampled), dim=1).detach().cpu()
             logger.info(f"Concatenated features shape: {concatenated_features.shape}")
 
             features_list.append(concatenated_features)
@@ -91,13 +89,16 @@ def extract_features_labels():
             logger.debug(f"Current size of labels list: {len(labels)}")
             logger.info("-------------------------------------------------------")
 
+            # Clear GPU memory after processing
+            del text_features, audio_features, audio_features_downsampled
+            torch.cuda.empty_cache()
+
         except Exception as e:
             logger.error(f"Error processing file {audio_file}: {e}")
             logger.debug(traceback.format_exc())
-            
-        # Clear GPU memory after processing the file
+        
+        # Additional GPU memory management
         torch.cuda.empty_cache()
-
 
     # After the loop finishes, save the accumulated concatenated CLS tokens to a file
     torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated2.pt')
