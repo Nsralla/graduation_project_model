@@ -48,7 +48,7 @@ logger.info(f"labels tensor shape: {labels_tensor.shape}")
 
 # Save features and labels to a file
 data_to_save = {'features': features_list, 'labels': labels}
-torch.save(data_to_save, f'{url}\\features_labels1.pt')
+torch.save(data_to_save, f'{url}\\features_labels2.pt')
 
 #STEP3: CREATE THE DATA SET, SPLIT IT TO TRAINING AND TESTING
 # Create a dataset and split it into training and testing sets

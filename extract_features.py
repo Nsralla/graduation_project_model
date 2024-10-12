@@ -40,7 +40,7 @@ def extract_features_labels():
     model_bert = whisperx.load_model("small", device=device_str, compute_type=compute_type)
 
     # Step 1: Extract features and labels for all files
-    for i, audio_file in enumerate(IELTS_FILES[0:501]):
+    for i, audio_file in enumerate(IELTS_FILES[501:1000]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
             # Extract the label from the audio file path
@@ -100,5 +100,5 @@ def extract_features_labels():
 
 
     # After the loop finishes, save the accumulated concatenated CLS tokens to a file
-    torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated1.pt')
+    torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated2.pt')
     return features_list, labels
