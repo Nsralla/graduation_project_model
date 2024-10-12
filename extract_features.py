@@ -11,8 +11,6 @@ from IELTSDatasetClass import extract_label_from_path
 import whisperx
 from padding import logger
 
-
-
 # Collect all audio file paths and extract their labels
 IELTS_FILES = get_IELTS_audio_files()
 class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
@@ -39,42 +37,36 @@ def extract_features_labels():
 
     compute_type = "float16"  # Use float16 to reduce memory
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    torch.cuda.empty_cache()
-    model_bert = whisperx.load_model("small", device=device_str, compute_type="float32")
+    model_bert = whisperx.load_model("small", device=device_str, compute_type=compute_type)
 
     # Step 1: Extract features and labels for all files
-    for i, audio_file in enumerate(IELTS_FILES[260:261]):
+    for i, audio_file in enumerate(IELTS_FILES[0:501]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
             # Extract the label from the audio file path
             label = extract_label_from_path(audio_file)
             label_index = class_labels.index(label)
-            logger.info("-----------------------------------------------------");
             logger.info(f"Extracted label: {label}, Label index: {label_index}")
-            logger.info("-----------------------------------------------------");
 
-           
-            # Step 1.1: Process Audio
+           # Step 2: Process Text
+            text_features, text_cls_token = process_text(audio_file, tokenizer, bert_model, model_bert)
+            text_features = text_features.to(device)
+            text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
+            logger.info(f"Text features extracted. Shape: {text_features.shape}")
+            logger.info(f"Text CLS token shape: {text_cls_token.shape}")
+
+            # Step 3: Process Audio
             audio_features, audio_cls_token = process_single_audio(audio_file, processor, model)
             audio_features = audio_features.to(device)
             audio_cls_token = audio_cls_token.cpu()  # Move to CPU after extracting
 
             if audio_features.dim() == 2:
                 audio_features = audio_features.unsqueeze(0)
-            logger.info("-----------------------------------------------------");    
+
             logger.info(f"Audio features extracted. Shape: {audio_features.shape}")
             logger.info(f"Audio CLS token shape: {audio_cls_token.shape}")
-            logger.info("-----------------------------------------------------");
-            
-            
-            # Step 1.2: Process Text
-            text_features, text_cls_token = process_text(audio_file,tokenizer, bert_model, model_bert)
-            text_features = text_features.to(device)
-            text_cls_token = text_cls_token.cpu()  # Move to CPU after extracting
-            logger.info(f"Text features extracted. Shape: {text_features.shape}")
-            logger.info(f"Text CLS token shape: {text_cls_token.shape}")
 
-            # Step 1.3: Concatenate the CLS tokens
+            # Step 3.1: Concatenate the CLS tokens
             concatenated_cls = torch.cat((text_cls_token, audio_cls_token), dim=1)  # This works fine on CPU
             all_concatenated_cls_tokens.append({
                 'concatenated_cls': concatenated_cls,
@@ -95,9 +87,9 @@ def extract_features_labels():
             features_list.append(concatenated_features)
             labels.append(label_index)
 
-            logger.info(f"Stored features for file: {audio_file}")
             logger.debug(f"Current size of features_list: {len(features_list)}")
             logger.debug(f"Current size of labels list: {len(labels)}")
+            logger.info("-------------------------------------------------------")
 
         except Exception as e:
             logger.error(f"Error processing file {audio_file}: {e}")
@@ -107,10 +99,6 @@ def extract_features_labels():
         torch.cuda.empty_cache()
 
 
+    # After the loop finishes, save the accumulated concatenated CLS tokens to a file
     torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated1.pt')
-
-    with open(f'{url}\\full_all_cls_tokens_concatenated1.pkl', 'wb') as f:
-        pickle.dump(all_concatenated_cls_tokens, f)
-
-
     return features_list, labels

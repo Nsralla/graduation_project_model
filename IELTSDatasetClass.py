@@ -39,7 +39,6 @@ class IELTSDataset(Dataset):
 
     
 import re
-import re
 
 def extract_label_from_path(file_path):
     """Extracts the score from the file path, handling B1_1 and B1_2."""
