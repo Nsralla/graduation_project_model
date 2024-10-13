@@ -7,3 +7,4 @@ fastdtw
 pydub
 colorama
 fastapi
+whisper

@@ -12,3 +12,5 @@ all_cls_tokens_concatenated.pt
 test.py
 features_labels1.pt
 all_cls_tokens_concatenated1.pt
+text_features_and_labels.pt
+text_features_and_labels_second_try.pt
