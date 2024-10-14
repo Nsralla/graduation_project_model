@@ -1,65 +1,113 @@
 import torch
 import traceback
-from transformers import XLNetTokenizer, XLNetModel
+import os
+from transformers import Wav2Vec2Processor, Wav2Vec2Model
 from append_IELTS_set import get_IELTS_audio_files
-from TextProcessing import process_text
+from audioProcessing import process_single_audio
 from IELTSDatasetClass import extract_label_from_path
 from padding import logger
-import whisperx
 
+# Set up logging
+log_file = 'processing_log.txt'
 # Collect all audio file paths and extract their labels
-IELTS_FILES = get_IELTS_audio_files()  # Ensure this is defined
+IELTS_FILES = get_IELTS_audio_files()
 class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-logger.info(f"Device: {device}")
 
-def extract_features_labels():
+# Define paths for saving intermediate results
+output_folder = 'intermediate_results'
+os.makedirs(output_folder, exist_ok=True)
+intermediate_file = os.path.join(output_folder, 'features_labels.pt')
+processed_files_log = os.path.join(output_folder, 'processed_files.txt')
+
+# Load processed files log
+if os.path.exists(processed_files_log):
+    with open(processed_files_log, 'r') as f:
+        processed_files = set(f.read().splitlines())
+else:
+    processed_files = set()
+
+def extract_features_labels(save_every=40):
     features_list = []
     labels = []
-    
-    # Load pre-trained XLNet model and tokenizer
-    tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
-    bert_model = XLNetModel.from_pretrained('xlnet-large-cased').to(device)
-    
-    # Load Whisper model on GPU or CPU
-    device_str = "cuda" if torch.cuda.is_available() else "cpu"
-    whisper_model = whisperx.load_model("medium", device=device_str)  # Whisper model loaded for GPU if available
 
-    # Disable gradient tracking to save memory
-    with torch.no_grad():
-        for i, audio_file in enumerate(IELTS_FILES[1501:2500]):
-            logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
-            try:
-                # Extract label
-                label = extract_label_from_path(audio_file)
-                label_index = class_labels.index(label)
-                logger.info(f"Extracted label: {label}, Label index: {label_index}")
+    # Load Wav2Vec 2.0 model and processor
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h")
+    model = Wav2Vec2Model.from_pretrained(
+        "facebook/wav2vec2-large-960h",
+        output_hidden_states=True,
+        output_attentions=True
+    ).to(device)
+    model.eval()
 
-                # Step 2: Process Text
-                # Ensure audio is processed with Whisper and XLNet on the same device
-                text_features = process_text(audio_file, tokenizer, bert_model, whisper_model)
-                
-                # Move the extracted features to the same device (if not already)
-                text_features = text_features.to(device)
-                logger.info(f"Text features extracted. Shape: {text_features.shape}")
+    for i, audio_file in enumerate(IELTS_FILES):
+        if audio_file in processed_files:
+            logger.info(f"Skipping already processed file: {audio_file}")
+            continue
 
-                # Move features to CPU and append to list to free up GPU memory
-                features_list.append(text_features.cpu())
-                labels.append(label_index)
+        logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
+        try:
+            label = extract_label_from_path(audio_file)
+            label_index = class_labels.index(label)
+            logger.info(f"Extracted label: {label}, Label index: {label_index}")
 
-                logger.debug(f"Current size of features_list: {len(features_list)}")
-                logger.debug(f"Current size of labels list: {len(labels)}")
-                logger.info("-------------------------------------------------------")
+            # Step 3: Process Audio and extract features
+            audio_features = process_single_audio(audio_file, processor, model)
+            audio_features = audio_features.cpu()  # Move to CPU
 
-                # Clear GPU memory after processing each file
-                del text_features
-                torch.cuda.empty_cache()
+            features_list.append(audio_features)
+            labels.append(label_index)
 
-            except Exception as e:
-                logger.error(f"Error processing file {audio_file}: {e}")
-                logger.debug(traceback.format_exc())
+            # Log processed file
+            with open(processed_files_log, 'a') as f:
+                f.write(audio_file + '\n')
 
-            # Additional GPU memory management
+            # Save intermediate results every N files
+            if (i + 1) % save_every == 0:
+                save_intermediate_results(features_list, labels, intermediate_file)
+                logger.info(f"Intermediate results saved at iteration {i+1}.")
+                # Clear lists after saving
+                features_list = []
+                labels = []
+
+            logger.debug(f"Current size of features_list: {len(features_list)}")
+            logger.debug(f"Current size of labels list: {len(labels)}")
+            logger.info("-------------------------------------------------------")
+
+            # Clear GPU memory after processing
+            del audio_features
             torch.cuda.empty_cache()
 
+        except Exception as e:
+            logger.error(f"Error processing file {audio_file}: {e}")
+            logger.debug(traceback.format_exc())
+        
+        # Additional GPU memory management
+        torch.cuda.empty_cache()
+    
+    # Save remaining results after the loop finishes
+    if features_list and labels:
+        save_intermediate_results(features_list, labels, intermediate_file)
+
     return features_list, labels
+
+def save_intermediate_results(features_list, labels, file_path):
+    # If file already exists, load it and append new data
+    if os.path.exists(file_path):
+        try:
+            existing_data = torch.load(file_path)
+            existing_features = existing_data.get('features', [])
+            existing_labels = existing_data.get('labels', [])
+            updated_features = existing_features + features_list
+            updated_labels = existing_labels + labels
+        except Exception as e:
+            logger.error(f"Error loading intermediate file {file_path}: {e}")
+            updated_features = features_list
+            updated_labels = labels
+    else:
+        updated_features = features_list
+        updated_labels = labels
+
+    data_to_save = {'features': updated_features, 'labels': updated_labels}
+    torch.save(data_to_save, file_path)
+    logger.info(f"Intermediate results saved to {file_path}.")

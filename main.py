@@ -5,14 +5,15 @@ import os
 import time
 
 torch.cuda.empty_cache()
+
 # Define paths
-folder_path = 'process_text_audio_seperatly\\text_features_only'
-file_path = os.path.join(folder_path, 'text_features_and_labels_second_try.pt')
+folder_path = 'process_text_audio_seperatly\\audio_features_only'
+file_path = os.path.join(folder_path, 'audio_features_and_labels_second_try.pt')
 
 # Helper function to create a fallback file path
 def generate_fallback_file_path(folder_path):
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    return os.path.join(folder_path, f'text_features_and_labels_backup_{timestamp}.pt')
+    return os.path.join(folder_path, f'audio_features_and_labels_backup_{timestamp}.pt')
 
 # STEP 1: EXTRACT FEATURES AND LABELS FROM AUDIOS.
 features_list, labels = extract_features_labels()
