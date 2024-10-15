@@ -1,73 +1,51 @@
 import torch
-from padding import logger
-from extract_features import extract_features_labels
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
 import os
-import time
 
-torch.cuda.empty_cache()
+# Create a folder for the output if it doesn't exist
+output_directory = 'intermediate_results\\processed_features\\'
+os.makedirs(output_directory, exist_ok=True)
 
-# Define paths
-folder_path = 'process_text_audio_seperatly\\audio_features_only'
-file_path = os.path.join(folder_path, 'audio_features_and_labels_second_try.pt')
+class LargeFeatureDataset(Dataset):
+    def __init__(self, data_path):
+        # Load the data (assuming the file contains a dictionary with 'features' and 'labels')
+        self.data = torch.load(data_path)
+        self.features = self.data['features']
+        self.labels = self.data['labels']
+        self.total_samples = len(self.features)
 
-# Helper function to create a fallback file path
-def generate_fallback_file_path(folder_path):
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    return os.path.join(folder_path, f'audio_features_and_labels_backup_{timestamp}.pt')
+    def __len__(self):
+        return self.total_samples
 
-# STEP 1: EXTRACT FEATURES AND LABELS FROM AUDIOS.
-features_list, labels = extract_features_labels()
+    def __getitem__(self, idx):
+        # Return the feature and corresponding label
+        return self.features[idx], self.labels[idx]
 
-# Check if features_list and labels have the same length
-if len(features_list) != len(labels):
-    logger.error(f"Inconsistent dataset sizes: features_list={len(features_list)}, labels={len(labels)}")
-    raise ValueError("Mismatch between features and labels.")
+# Step 1: Initialize the dataset and dataloader
+data_path = 'intermediate_results\\features_labels.pt'
+dataset = LargeFeatureDataset(data_path)
 
-# Ensure the folder exists before saving
-if not os.path.isdir(folder_path):
-    try:
-        os.makedirs(folder_path, exist_ok=True)
-        logger.info(f"Created folder: {folder_path}")
-    except Exception as e:
-        logger.error(f"Failed to create folder '{folder_path}': {e}")
-        raise
+# Create a DataLoader to load in smaller batches
+batch_size = 1  # Load one sample at a time
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
-# Try loading the existing data, with fallback in case of an error
-try:
-    if os.path.exists(file_path):
-        # Attempt to load existing data
-        existing_data = torch.load(file_path)
-        existing_features = existing_data.get('features', [])
-        existing_labels = existing_data.get('labels', [])
+# Step 2: Iterate through the DataLoader and process each sample
+window_size = 5
+stride_size = 8
 
-        # Append new features and labels to existing data
-        updated_features = existing_features + features_list
-        updated_labels = existing_labels + labels
-
-        logger.info(f"Loaded existing data from '{file_path}', appending new features and labels.")
-    else:
-        # If no existing file is found, start fresh
-        logger.info(f"No existing file found. Creating new dataset.")
-        updated_features = features_list
-        updated_labels = labels
-
-    # Save updated features and labels to the original file
-    data_to_save = {'features': updated_features, 'labels': updated_labels}
-    torch.save(data_to_save, file_path)
-    logger.info(f"Updated features and labels saved successfully to '{file_path}'.")
-
-except Exception as e:
-    # Handle any errors during loading or appending
-    logger.error(f"Failed to load or append data to '{file_path}': {e}")
+for idx, (feature, label) in enumerate(dataloader):
+    # Apply pooling to the feature
+    feature = feature.squeeze(0)  # Remove the extra batch dimension
+    pooled_feature = F.avg_pool1d(feature.transpose(1, 2), kernel_size=window_size, stride=stride_size)
+    pooled_feature = pooled_feature.transpose(1, 2)
     
-    # Generate a fallback file name and save new features there
-    fallback_file_path = generate_fallback_file_path(folder_path)
+    # Create a unique file name for each feature
+    output_file_name = os.path.join(output_directory, f'feature_{idx}.pt')
     
-    try:
-        # Save only the new features and labels to the fallback file
-        data_to_save = {'features': features_list, 'labels': labels}
-        torch.save(data_to_save, fallback_file_path)
-        logger.info(f"Due to an error, new features and labels were saved to '{fallback_file_path}' instead.")
-    except Exception as save_error:
-        logger.error(f"Failed to save new features and labels to fallback file '{fallback_file_path}': {save_error}")
-        raise
+    # Save the pooled feature and corresponding label in a dictionary
+    torch.save({'pooled_feature': pooled_feature, 'label': label.squeeze(0)}, output_file_name)
+
+    print(f'Saved: {output_file_name}')
+
+print("All features processed and saved!")

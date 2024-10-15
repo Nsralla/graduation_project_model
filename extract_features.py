@@ -1,34 +1,25 @@
 import torch
+import pickle
 import traceback
-import os
-from transformers import Wav2Vec2Processor, Wav2Vec2Model
+import logging
+import torch.nn as nn
+from transformers import XLNetTokenizer, XLNetModel, Wav2Vec2Processor, Wav2Vec2Model
 from append_IELTS_set import get_IELTS_audio_files
+from TextProcessing import process_text
 from audioProcessing import process_single_audio
 from IELTSDatasetClass import extract_label_from_path
+import whisperx
 from padding import logger
 
-# Set up logging
-log_file = 'processing_log.txt'
 # Collect all audio file paths and extract their labels
 IELTS_FILES = get_IELTS_audio_files()
 class_labels = ['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+url = 'cls_tokens_extracted'
 
-# Define paths for saving intermediate results
-output_folder = 'intermediate_results'
-os.makedirs(output_folder, exist_ok=True)
-intermediate_file = os.path.join(output_folder, 'features_labels.pt')
-processed_files_log = os.path.join(output_folder, 'processed_files.txt')
-
-# Load processed files log
-if os.path.exists(processed_files_log):
-    with open(processed_files_log, 'r') as f:
-        processed_files = set(f.read().splitlines())
-else:
-    processed_files = set()
-
-def extract_features_labels(save_every=40):
+def extract_features_labels():
     features_list = []
+    all_concatenated_cls_tokens = []
     labels = []
 
     # Load Wav2Vec 2.0 model and processor
@@ -40,42 +31,66 @@ def extract_features_labels(save_every=40):
     ).to(device)
     model.eval()
 
-    for i, audio_file in enumerate(IELTS_FILES):
-        if audio_file in processed_files:
-            logger.info(f"Skipping already processed file: {audio_file}")
-            continue
+    # Load pre-trained XLNet model and tokenizer
+    tokenizer = XLNetTokenizer.from_pretrained('xlnet-large-cased')
+    bert_model = XLNetModel.from_pretrained('xlnet-large-cased').to(device)
 
+    compute_type = "float16"  # Use float16 to reduce memory
+    device_str = "cuda" if torch.cuda.is_available() else "cpu"
+    model_bert = whisperx.load_model("small", device=device_str, compute_type=compute_type)
+
+    for i, audio_file in enumerate(IELTS_FILES[501:1000]):
         logger.info(f"Processing file {i+1}/{len(IELTS_FILES)}: {audio_file}")
         try:
             label = extract_label_from_path(audio_file)
             label_index = class_labels.index(label)
             logger.info(f"Extracted label: {label}, Label index: {label_index}")
 
-            # Step 3: Process Audio and extract features
-            audio_features = process_single_audio(audio_file, processor, model)
-            audio_features = audio_features.cpu()  # Move to CPU
+            # Step 2: Process Text
+            text_features, text_cls_token = process_text(audio_file, tokenizer, bert_model, model_bert)
+            text_features = text_features.to(device)
+            text_cls_token = text_cls_token.cpu().detach()  # Move to CPU and detach
+            logger.info(f"Text features extracted. Shape: {text_features.shape}")
+            logger.info(f"Text CLS token shape: {text_cls_token.shape}")
 
-            features_list.append(audio_features)
+            # Step 3: Process Audio
+            audio_features, audio_cls_token = process_single_audio(audio_file, processor, model)
+            audio_features = audio_features.to(device)
+            audio_cls_token = audio_cls_token.cpu().detach()  # Move to CPU and detach
+
+            if audio_features.dim() == 2:
+                audio_features = audio_features.unsqueeze(0)
+
+            logger.info(f"Audio features extracted. Shape: {audio_features.shape}")
+            logger.info(f"Audio CLS token shape: {audio_cls_token.shape}")
+
+            # Step 3.1: Concatenate the CLS tokens on the CPU
+            concatenated_cls = torch.cat((text_cls_token, audio_cls_token), dim=1)
+            all_concatenated_cls_tokens.append({
+                'concatenated_cls': concatenated_cls,
+                'label': label
+            })
+
+            logger.info(f"Concatenated CLS tokens shape: {concatenated_cls.shape}")
+
+            # Step 4: Downsample Audio Features
+            pooling_layer = nn.AdaptiveAvgPool1d(text_features.shape[1])
+            audio_features_downsampled = pooling_layer(audio_features.permute(0, 2, 1)).permute(0, 2, 1).detach().cpu()
+            logger.info(f"Audio features after pooling. Shape: {audio_features_downsampled.shape}")
+
+            # Step 5: Concatenate Text and Audio Features
+            concatenated_features = torch.cat((text_features.cpu(), audio_features_downsampled), dim=1).detach().cpu()
+            logger.info(f"Concatenated features shape: {concatenated_features.shape}")
+
+            features_list.append(concatenated_features)
             labels.append(label_index)
-
-            # Log processed file
-            with open(processed_files_log, 'a') as f:
-                f.write(audio_file + '\n')
-
-            # Save intermediate results every N files
-            if (i + 1) % save_every == 0:
-                save_intermediate_results(features_list, labels, intermediate_file)
-                logger.info(f"Intermediate results saved at iteration {i+1}.")
-                # Clear lists after saving
-                features_list = []
-                labels = []
 
             logger.debug(f"Current size of features_list: {len(features_list)}")
             logger.debug(f"Current size of labels list: {len(labels)}")
             logger.info("-------------------------------------------------------")
 
             # Clear GPU memory after processing
-            del audio_features
+            del text_features, audio_features, audio_features_downsampled
             torch.cuda.empty_cache()
 
         except Exception as e:
@@ -84,30 +99,7 @@ def extract_features_labels(save_every=40):
         
         # Additional GPU memory management
         torch.cuda.empty_cache()
-    
-    # Save remaining results after the loop finishes
-    if features_list and labels:
-        save_intermediate_results(features_list, labels, intermediate_file)
 
+    # After the loop finishes, save the accumulated concatenated CLS tokens to a file
+    torch.save(all_concatenated_cls_tokens, f'{url}\\all_cls_tokens_concatenated2.pt')
     return features_list, labels
-
-def save_intermediate_results(features_list, labels, file_path):
-    # If file already exists, load it and append new data
-    if os.path.exists(file_path):
-        try:
-            existing_data = torch.load(file_path)
-            existing_features = existing_data.get('features', [])
-            existing_labels = existing_data.get('labels', [])
-            updated_features = existing_features + features_list
-            updated_labels = existing_labels + labels
-        except Exception as e:
-            logger.error(f"Error loading intermediate file {file_path}: {e}")
-            updated_features = features_list
-            updated_labels = labels
-    else:
-        updated_features = features_list
-        updated_labels = labels
-
-    data_to_save = {'features': updated_features, 'labels': updated_labels}
-    torch.save(data_to_save, file_path)
-    logger.info(f"Intermediate results saved to {file_path}.")

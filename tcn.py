@@ -37,6 +37,7 @@ class TCNClassifier(nn.Module):
         self.fc = nn.Linear(num_channels[-1], num_classes)
 
     def forward(self, x, mask=None):
+        
         """
         Forward pass through the TCN and classifier.
 
