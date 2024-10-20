@@ -1,51 +1,112 @@
 import torch
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
 import os
 
-# Create a folder for the output if it doesn't exist
-output_directory = 'intermediate_results\\processed_features\\'
-os.makedirs(output_directory, exist_ok=True)
+class Chomp1d(nn.Module):
+    def __init__(self, chomp_size):
+        super(Chomp1d, self).__init__()
+        self.chomp_size = chomp_size
 
-class LargeFeatureDataset(Dataset):
-    def __init__(self, data_path):
-        # Load the data (assuming the file contains a dictionary with 'features' and 'labels')
-        self.data = torch.load(data_path)
-        self.features = self.data['features']
-        self.labels = self.data['labels']
-        self.total_samples = len(self.features)
+    def forward(self, x):
+        print(f"Before Chomp1d: {x.shape}")
+        x = x[:, :, :-self.chomp_size]
+        print(f"After Chomp1d: {x.shape}")
+        return x
 
-    def __len__(self):
-        return self.total_samples
+class TemporalBlock(nn.Module):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
+        super(TemporalBlock, self).__init__()
+        self.conv1 = nn.Conv1d(n_inputs, n_outputs, kernel_size, stride=stride,
+                               padding=padding, dilation=dilation)
+        self.chomp1 = Chomp1d(padding)
+        self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout)
 
-    def __getitem__(self, idx):
-        # Return the feature and corresponding label
-        return self.features[idx], self.labels[idx]
+        self.conv2 = nn.Conv1d(n_outputs, n_outputs, kernel_size, stride=stride,
+                               padding=padding, dilation=dilation)
+        self.chomp2 = Chomp1d(padding)
+        self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
 
-# Step 1: Initialize the dataset and dataloader
-data_path = 'intermediate_results\\features_labels.pt'
-dataset = LargeFeatureDataset(data_path)
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
+                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
+        self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
+        self.relu = nn.ReLU()
+        self.init_weights()
 
-# Create a DataLoader to load in smaller batches
-batch_size = 1  # Load one sample at a time
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    def init_weights(self):
+        self.conv1.weight.data.normal_(0, 0.01)
+        self.conv2.weight.data.normal_(0, 0.01)
+        if self.downsample is not None:
+            self.downsample.weight.data.normal_(0, 0.01)
 
-# Step 2: Iterate through the DataLoader and process each sample
-window_size = 5
-stride_size = 8
+    def forward(self, x):
+        print(f"Input to TemporalBlock: {x.shape}")
+        out = self.net(x)
+        print(f"Output of convs and activations (before residual connection): {out.shape}")
+        if self.downsample is not None:
+            res = self.downsample(x)
+            print(f"Reshaped residual (after downsampling): {res.shape}")
+        else:
+            res = x
+        output = self.relu(out + res)
+        print(f"Final output after residual connection and ReLU: {output.shape}")
+        return output
 
-for idx, (feature, label) in enumerate(dataloader):
-    # Apply pooling to the feature
-    feature = feature.squeeze(0)  # Remove the extra batch dimension
-    pooled_feature = F.avg_pool1d(feature.transpose(1, 2), kernel_size=window_size, stride=stride_size)
-    pooled_feature = pooled_feature.transpose(1, 2)
+class TCN(nn.Module):
+    def __init__(self, num_inputs, num_channels, kernel_size=2, dropout=0.2):
+        super(TCN, self).__init__()
+        layers = []
+        num_levels = len(num_channels)
+        for i in range(num_levels):
+            dilation_size = 2 ** i
+            in_channels = num_inputs if i == 0 else num_channels[i-1]
+            out_channels = num_channels[i]
+            layers += [TemporalBlock(in_channels, out_channels, kernel_size, stride=1, dilation=dilation_size,
+                                     padding=(kernel_size-1) * dilation_size, dropout=dropout)]
+
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x):
+        for i, layer in enumerate(self.network):
+            print(f"Passing input through layer {i+1}")
+            x = layer(x)
+        return x
     
-    # Create a unique file name for each feature
-    output_file_name = os.path.join(output_directory, f'feature_{idx}.pt')
-    
-    # Save the pooled feature and corresponding label in a dictionary
-    torch.save({'pooled_feature': pooled_feature, 'label': label.squeeze(0)}, output_file_name)
 
-    print(f'Saved: {output_file_name}')
 
-print("All features processed and saved!")
+# Ensure the correct file path
+url = 'intermediate_results\\processed_features'
+file_name = 'feature_0.pt'
+
+# Construct the absolute path
+saved_data_path = os.path.join(os.getcwd(), url, file_name)
+
+# Check if the file exists at the constructed path
+if os.path.exists(saved_data_path):
+    # Load the saved data
+    loaded_data = torch.load(saved_data_path)
+
+    # Extract features and labels
+    feature = loaded_data['pooled_feature']
+    label = loaded_data['label']
+    print(feature.shape)
+    print(label)
+    feature = feature.permute(0,2,1)
+
+
+# Sample inputs
+batch_size = feature.shape[0]
+num_channels = feature.shape[1]
+sequence_length = feature.shape[2]
+
+# Initialize the TCN model
+tcn = TCN(num_inputs=num_channels, num_channels=[16, 32, 64], kernel_size=3, dropout=0.2)
+
+# Create a random input tensor
+x = torch.randn(batch_size, num_channels, sequence_length)
+
+# Pass it through the model
+output = tcn(x)
+
+print(output.shape)  # Output will have shape (batch_size, 64, sequence_length)
