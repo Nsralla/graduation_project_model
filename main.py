@@ -1,112 +1,117 @@
 import torch
 import torch.nn as nn
 import os
-
-class Chomp1d(nn.Module):
-    def __init__(self, chomp_size):
-        super(Chomp1d, self).__init__()
-        self.chomp_size = chomp_size
-
-    def forward(self, x):
-        print(f"Before Chomp1d: {x.shape}")
-        x = x[:, :, :-self.chomp_size]
-        print(f"After Chomp1d: {x.shape}")
-        return x
+from padding import logger
 
 class TemporalBlock(nn.Module):
-    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
-        super(TemporalBlock, self).__init__()
-        self.conv1 = nn.Conv1d(n_inputs, n_outputs, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.chomp1 = Chomp1d(padding)
-        self.relu1 = nn.ReLU()
-        self.dropout1 = nn.Dropout(dropout)
-
-        self.conv2 = nn.Conv1d(n_outputs, n_outputs, kernel_size, stride=stride,
-                               padding=padding, dilation=dilation)
-        self.chomp2 = Chomp1d(padding)
-        self.relu2 = nn.ReLU()
-        self.dropout2 = nn.Dropout(dropout)
-
-        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
-                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
+    def __init__(self, n_inputs, n_outputs, kernel_size, dilation, dropout=0.2):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation // 2  # Correct padding to maintain sequence length
+        self.conv_block = nn.Sequential(
+            nn.Conv1d(n_inputs, n_outputs, kernel_size, padding=padding, dilation=dilation),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Conv1d(n_outputs, n_outputs, kernel_size, padding=padding, dilation=dilation),
+            nn.ReLU(),
+            nn.Dropout(dropout)
+        )
         self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         self.relu = nn.ReLU()
-        self.init_weights()
-
-    def init_weights(self):
-        self.conv1.weight.data.normal_(0, 0.01)
-        self.conv2.weight.data.normal_(0, 0.01)
-        if self.downsample is not None:
-            self.downsample.weight.data.normal_(0, 0.01)
 
     def forward(self, x):
-        print(f"Input to TemporalBlock: {x.shape}")
-        out = self.net(x)
-        print(f"Output of convs and activations (before residual connection): {out.shape}")
-        if self.downsample is not None:
-            res = self.downsample(x)
-            print(f"Reshaped residual (after downsampling): {res.shape}")
-        else:
-            res = x
-        output = self.relu(out + res)
-        print(f"Final output after residual connection and ReLU: {output.shape}")
-        return output
+        logger.debug(f"Input shape to TemporalBlock: {x.shape}")
+        out = self.conv_block(x)
+        logger.debug(f"Output shape after conv_block in TemporalBlock: {out.shape}")
+        res = x if self.downsample is None else self.downsample(x)
+        logger.debug(f"Residual connection shape in TemporalBlock: {res.shape}")
+        logger.debug(f"______________________________________________________");
+        return self.relu(out + res)
 
 class TCN(nn.Module):
-    def __init__(self, num_inputs, num_channels, kernel_size=2, dropout=0.2):
-        super(TCN, self).__init__()
+    def __init__(self, num_inputs, num_channels, num_classes, kernel_size=2, dropout=0.2):
+        super().__init__()
         layers = []
-        num_levels = len(num_channels)
-        for i in range(num_levels):
-            dilation_size = 2 ** i
-            in_channels = num_inputs if i == 0 else num_channels[i-1]
-            out_channels = num_channels[i]
-            layers += [TemporalBlock(in_channels, out_channels, kernel_size, stride=1, dilation=dilation_size,
-                                     padding=(kernel_size-1) * dilation_size, dropout=dropout)]
-
+        for i in range(len(num_channels)):
+            layers.append(TemporalBlock(
+                num_inputs if i == 0 else num_channels[i-1],
+                num_channels[i],
+                kernel_size,
+                dilation=2**i,
+                dropout=dropout
+            ))
         self.network = nn.Sequential(*layers)
+        
+        self.pooling_layer = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.fc = nn.Linear(num_channels[-1], num_classes)
 
     def forward(self, x):
-        for i, layer in enumerate(self.network):
-            print(f"Passing input through layer {i+1}")
-            x = layer(x)
-        return x
-    
-
+        logger.debug(f"Input shape to TCN: {x.shape}")
+        x = self.network(x)  # Pass through TCN layers
+        logger.debug(f"Shape after TCN layers: {x.shape}")
+        
+        seq_len = x.shape[2]
+        if seq_len > 40:
+            pooling_kernel_size = min(5, seq_len // 2)
+            self.pooling_layer = nn.MaxPool1d(kernel_size=pooling_kernel_size)
+            x = self.pooling_layer(x)
+            logger.debug(f"Shape after pooling layer: {x.shape}")
+        
+        x = torch.mean(x, dim=-1)
+        logger.debug(f"Shape after global pooling: {x.shape}")
+        
+        x = self.fc(x)
+        logger.debug(f"Shape after fully connected layer: {x.shape}")
+        return torch.softmax(x, dim=-1)
 
 # Ensure the correct file path
 url = 'intermediate_results\\processed_features'
 file_name = 'feature_0.pt'
-
-# Construct the absolute path
 saved_data_path = os.path.join(os.getcwd(), url, file_name)
 
-# Check if the file exists at the constructed path
 if os.path.exists(saved_data_path):
-    # Load the saved data
     loaded_data = torch.load(saved_data_path)
-
-    # Extract features and labels
     feature = loaded_data['pooled_feature']
     label = loaded_data['label']
-    print(feature.shape)
-    print(label)
-    feature = feature.permute(0,2,1)
+    logger.debug(f"Loaded feature shape: {feature.shape}")
+    logger.debug(f"Loaded label: {label}")
+    feature = feature.permute(0, 2, 1)
 
-
-# Sample inputs
+num_classes = 7  # A1, A2, B1_1, B1_2, B2, C1, C2
 batch_size = feature.shape[0]
-num_channels = feature.shape[1]
 sequence_length = feature.shape[2]
 
 # Initialize the TCN model
-tcn = TCN(num_inputs=num_channels, num_channels=[16, 32, 64], kernel_size=3, dropout=0.2)
+tcn = TCN(num_inputs=feature.shape[1], num_channels=[32, 64, 128], num_classes=num_classes, kernel_size=3, dropout=0.2)
 
 # Create a random input tensor
-x = torch.randn(batch_size, num_channels, sequence_length)
+x = torch.randn(batch_size, feature.shape[1], sequence_length)
+logger.debug(f"Random input tensor shape: {x.shape}")
 
 # Pass it through the model
 output = tcn(x)
+logger.debug(f"Output shape: {output.shape}")
+print(output.shape)
+print(output)
 
-print(output.shape)  # Output will have shape (batch_size, 64, sequence_length)
+
+
+
+
+
+
+
+# Suppose:
+
+# Input x has 64 channels.
+# The convolutional layers in TemporalBlock output 128 channels.
+# Since the number of channels does not match, self.downsample will be defined as a Conv1d layer with in_channels=64 and out_channels=128:
+
+# python
+# Copy code
+# self.downsample = nn.Conv1d(64, 128, 1)  # Adjusts input channels to match output channels
+# The line:
+
+# python
+# Copy code
+# res = x if self.downsample is None else self.downsample(x)
+# will execute self.downsample(x), transforming x to have 128 channels, so it can be added to the output of the convolutional layers.

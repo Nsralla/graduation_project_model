@@ -16,3 +16,5 @@ text_features_and_labels.pt
 text_features_and_labels_second_try.pt
 processed_files.txt
 processed_features
+gitignore
+tcn_model.pth
