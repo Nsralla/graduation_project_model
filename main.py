@@ -84,7 +84,7 @@ sequence_length = feature.shape[2]
 tcn = TCN(num_inputs=feature.shape[1], num_channels=[32, 64, 128], num_classes=num_classes, kernel_size=3, dropout=0.2)
 
 # Create a random input tensor
-x = torch.randn(batch_size, feature.shape[1], sequence_length)
+x = feature
 logger.debug(f"Random input tensor shape: {x.shape}")
 
 # Pass it through the model

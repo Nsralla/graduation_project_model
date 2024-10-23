@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import os
@@ -11,8 +12,8 @@ from padding import logger
 class TemporalBlock(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, dilation, dropout=0.2):
         super().__init__()
-        padding = (kernel_size - 1) * dilation // 2  # Correct padding to maintain sequence length
-        self.conv = nn.Conv1d(n_inputs, n_outputs, kernel_size, padding=padding, dilation=dilation)
+        # padding = (kernel_size - 1) * dilation // 2  # Correct padding to maintain sequence length
+        self.conv = nn.Conv1d(n_inputs, n_outputs, kernel_size,  dilation=dilation)
         self.relu = nn.ReLU()  # Add ReLU after each convolution (except the last one)
         self.dropout = nn.Dropout(dropout)
 
@@ -22,7 +23,7 @@ class TemporalBlock(nn.Module):
         # logger.info(Fore.YELLOW + f"After Conv: {x.shape}")
         if apply_relu:  # Apply ReLU for the first two convolution layers, skip for the last one
             x = self.relu(x)
-            logger.info(Fore.GREEN + f"After ReLU: {x.shape}")
+            # logger.info(Fore.GREEN + f"After ReLU: {x.shape}")
         x = self.dropout(x)
         # logger.info(Fore.MAGENTA + f"After Dropout: {x.shape}")
         return x
@@ -104,7 +105,7 @@ saved_data_path = os.path.join(os.getcwd(), url, file_name)
 
 class_labels = ['A1', 'A2', 'B1_1','B1_2','B2', 'C1', 'C2']
 num_inputs = 1024
-num_channels = [32, 64, 128]  # Increased channels for better capacity
+num_channels = [128, 64,32]  # Increased channels for better capacity
 num_classes = len(class_labels)
 
 # Check if the file exists
@@ -112,9 +113,6 @@ if os.path.exists(saved_data_path):
     loaded_data = torch.load(saved_data_path)
     features_list = loaded_data['features']
     labels = loaded_data['labels']
-
-    # Filter the dataset to keep target labels (C1, C2, A1, A2, B2)
-    target_labels = [class_labels.index('C1'), class_labels.index('C2'), class_labels.index('A1'), class_labels.index('A2'), class_labels.index('B2')]
 
     # Create a new dataset
     dataset = MyDataset(features_list, labels)
@@ -193,7 +191,7 @@ if os.path.exists(saved_data_path):
 else:
     print(f"File not found at path: {saved_data_path}")
 
-# Ensure the correct file path
+# # Ensure the correct file path
 # url = 'intermediate_results\\processed_features'
 # file_name = 'feature_0.pt'
 # saved_data_path = os.path.join(os.getcwd(), url, file_name)
@@ -203,8 +201,8 @@ else:
 #     # Extract features and labels
 #     feature = loaded_data['pooled_feature']
 #     label = loaded_data['label']
-#     print(feature.shape)
-#     print(label)
+#     # print(feature.shape)
+#     # print(label)
 #     feature = feature.permute(0,2,1)
 # # Sample inputs
 # classes = ['A1','A2','B1_1','B1_2','B2','C1','C2']
@@ -218,8 +216,8 @@ else:
 # x = torch.randn(batch_size, num_channels, sequence_length)
 # # Pass it through the model
 # output = tcn(x)
-# print(output.shape)  # Output will have shape (batch_size, 64, sequence_length)
-# print(output)
+# logger.debug(f"output shape: {output.shape}")  # Output will have shape (batch_size, 64, sequence_length)
+# logger.debug(f"output: {output}")
 # probabilities = torch.softmax(output, dim=-1)
 # print(probabilities)
 # predicted_class = torch.argmax(probabilities, dim=-1)
@@ -232,4 +230,3 @@ else:
 # # Compute loss
 # loss = criterion(output, target_label)
 # print("loss: ",loss)
-
