@@ -291,7 +291,7 @@ for label_id in np.unique(labels_array):
     indices = labels_array == label_id
     plt.scatter(features_2d[indices, 0], features_2d[indices, 1], label=id_to_label[label_id], alpha=0.7)
 plt.legend()
-plt.title('t-SNE of XLNet Classification Outputs')
+plt.title('t-SNE of Base bert Classification Outputs')
 plt.xlabel('t-SNE Component 1')
 plt.ylabel('t-SNE Component 2')
 plt.grid(True)
