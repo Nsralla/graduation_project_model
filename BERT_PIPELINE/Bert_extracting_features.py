@@ -146,10 +146,10 @@ def main():
     # Configuration
     jsonl_file = 'transcriptions.jsonl'  # Path to your JSONL file
     output_dir = './bert-base-cased_freezing_firstLayers_20_Best'
-    cls_features_output_path = 'cls_features.pt'
-    all_token_features_output_path = 'all_token_features.pt'
-    labels_output_path = 'labels.pkl'
-    batch_size = 4  # Adjust based on your GPU memory
+    cls_features_output_path = 'cls_features1.pt'
+    all_token_features_output_path = 'all_token_features1.pt'
+    labels_output_path = 'labels1.pkl'
+    batch_size = 1  # Adjust based on your GPU memory
 
     # Check for GPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

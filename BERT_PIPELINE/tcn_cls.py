@@ -226,8 +226,8 @@ def visualize_embeddings(model, test_loader, label_encoder, device='cuda'):
 
 # Main function to train, evaluate, and visualize
 def main():
-    cls_features_path = 'cls_features.pt'
-    labels_path = 'labels.pkl'
+    cls_features_path = 'cls_features1.pt'
+    labels_path = 'labels1.pkl'
 
     # Load data
     train_loader, test_loader, label_encoder = load_data(cls_features_path, labels_path)
@@ -262,7 +262,6 @@ def main():
     model_save_path = "tcn_model.pth"
     # Save only the model's state dictionary
     torch.save(model.state_dict(), model_save_path)
-    
     # Alternative: Save the Entire Model
     # Save the entire model
     torch.save(model, "full_tcn_model.pth")
@@ -290,3 +289,7 @@ if __name__ == "__main__":
 # Load the entire model
 # model = torch.load("full_tcn_model.pth")
 # model.eval()
+
+
+# all_token_features : هاي عبارة عن الفيتسر الكاملة للصوت
+# cls_features : هاي عبارة عن الفيتشر الاولى

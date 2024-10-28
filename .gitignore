@@ -28,10 +28,10 @@ new_trial/xlnet_finetuned_epoch_3
 BERT_PIPELINE/transcriptions.jsonl
 intermediate_results/processed_features
 intermediate_results/features_labels.pt
-cls_features.pt
-all_token_features.pt
+cls_features1.pt
+all_token_features1.pt
 full_tcn_model.pth
-labels.pkl
+labels1.pkl
 tcn_model.pth
 BERT_PIPELINE/bert-base-cased_freezing_firstLayers_20_Best
 BERT_PIPELINE/bert-base-cased_freezing_firstLayers_10_BEST
