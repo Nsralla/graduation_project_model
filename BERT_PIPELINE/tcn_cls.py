@@ -1,3 +1,4 @@
+# This code to train a tcn model only on cls token
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
