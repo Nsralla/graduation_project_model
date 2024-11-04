@@ -1,4 +1,4 @@
-# This code to train a tcn model only on cls token
+# This code trains a TCN model only on CLS tokens, loading data from a folder where each file contains a CLS feature and the label is part of the filename.
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -13,6 +13,7 @@ import pickle
 import os
 import random
 import pandas as pd
+
 # Define TemporalBlock with kernel_size=1
 class TemporalBlock(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size=1, dilation=1, dropout=0.2):
@@ -60,6 +61,7 @@ class MyDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.features[idx], self.labels[idx]
+
 def set_seed(seed=42):
     """
     Set the random seed for reproducibility.
@@ -71,45 +73,81 @@ def set_seed(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    # torch.cuda.manual_seed_all(seed)  # Uncomment if using multi-GPU
     os.environ['PYTHONHASHSEED'] = str(seed)
     
     # For deterministic behavior (may impact performance)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def extract_label_from_filename(filename, labels=['A1', 'A2', 'B1_1', 'B1_2', 'B2', 'C1', 'C2']):
+    """
+    Extracts the label from the filename based on predefined labels.
+
+    Args:
+        filename (str): The filename from which to extract the label.
+        labels (list): A list of possible labels.
+
+    Returns:
+        str or None: The extracted label or None if not found.
+    """
+    base_filename = os.path.basename(filename).lower()
+    # Remove file extension
+    base_filename = os.path.splitext(base_filename)[0]
+    for label in labels:
+        label_lower = label.lower()
+        if label_lower in base_filename:
+            return label
+    return None
+
+
 # Load data, encode labels, and prepare dataset
-def load_data(cls_features_path, labels_path, test_size=0.2):
-    # Load [CLS] features
-    cls_features = torch.load(cls_features_path)  # List of tensors
-
-    # Load labels
-    with open(labels_path, 'rb') as f:
-        labels = pickle.load(f)
-
+def load_data(data_folder, test_size=0.2):
+    # Initialize lists to hold features and labels
+    features_list = []
+    labels_list = []
+    
+    # Get all .pt files in the data_folder
+    file_list = [f for f in os.listdir(data_folder) if f.endswith('.pt')]
+    
+    for filename in file_list:
+        # Extract label from filename
+        label = extract_label_from_filename(filename)
+        
+        if label is None:
+            print(f"Warning: Label not found in filename: {filename}")
+            continue  # Skip this file
+        
+        # Load the feature tensor
+        feature_path = os.path.join(data_folder, filename)
+        feature = torch.load(feature_path)  # Assuming this loads a tensor
+        
+        features_list.append(feature)
+        labels_list.append(label)
+    
     # Encode labels to integers
     label_encoder = LabelEncoder()
-    labels = label_encoder.fit_transform(labels)  # Converts ['A1', 'A2', ...] to integers
-
+    labels_encoded = label_encoder.fit_transform(labels_list)  # Converts ['A1', 'A2', ...] to integers
+    
     # Stack features and convert labels to tensor
-    features = torch.stack(cls_features)  # Shape: [num_samples, hidden_size]
-    labels = torch.tensor(labels, dtype=torch.long)  # Ensure labels are of type long for CrossEntropyLoss
-
+    features = torch.stack(features_list)  # Shape: [num_samples, hidden_size]
+    labels = torch.tensor(labels_encoded, dtype=torch.long)  # Ensure labels are of type long for CrossEntropyLoss
+    
     # Split into training and test sets with stratification
     X_train, X_test, y_train, y_test = train_test_split(
         features, labels, test_size=test_size, random_state=42, stratify=labels
     )
-
+    
     # Create Dataset and DataLoader for train and test sets
     train_dataset = MyDataset(X_train, y_train)
     test_dataset = MyDataset(X_test, y_test)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+    
     return train_loader, test_loader, label_encoder
 
 # Function to train TCN model
-def train_tcn(model, train_loader, criterion, optimizer, num_epochs=20, device='cuda'):
+def train_tcn(model, train_loader, criterion, optimizer, num_epochs=10, device='cuda'):
     model.to(device)
     model.train()
     for epoch in range(num_epochs):
@@ -118,7 +156,8 @@ def train_tcn(model, train_loader, criterion, optimizer, num_epochs=20, device='
             inputs, labels = inputs.to(device), labels.to(device)
 
             # Add a sequence length dimension
-            inputs = inputs.unsqueeze(-1)  # Now shape is [batch_size, 768, 1]
+            inputs = inputs.squeeze(-1)  # Now shape is [batch_size, 768, 1]
+            inputs = inputs.permute(0, 2, 1)  # Shape is now [batch_size, 1, 768]
 
             # Zero gradients
             optimizer.zero_grad()
@@ -147,7 +186,8 @@ def evaluate_tcn(model, test_loader, label_encoder, device='cuda'):
             inputs, labels = inputs.to(device), labels.to(device)
 
             # Add a sequence length dimension
-            inputs = inputs.unsqueeze(-1)  # Now shape is [batch_size, 768, 1]
+            inputs = inputs.squeeze(-1)  
+            inputs = inputs.permute(0, 2, 1)
 
             outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
@@ -167,7 +207,6 @@ def evaluate_tcn(model, test_loader, label_encoder, device='cuda'):
 
     # Calculate Additional Metrics
     calculate_additional_metrics(all_labels, all_preds, label_encoder)
-
 # Function to calculate additional metrics: Precision, Recall, F1 Score
 def calculate_additional_metrics(all_labels, all_preds, label_encoder):
     precision, recall, f1, support = precision_recall_fscore_support(
@@ -198,7 +237,8 @@ def visualize_embeddings(model, test_loader, label_encoder, device='cuda'):
             labels = labels.to(device)
 
             # Add a sequence length dimension
-            inputs = inputs.unsqueeze(-1)  # Now shape is [batch_size, 768, 1]
+            inputs = inputs.squeeze(-1)  # Now shape is [batch_size, 768, 1]
+            inputs = inputs.permute(0, 2, 1)  # Shape is now [batch_size, 1, 768]
 
             _, embeddings = model(inputs, return_embeddings=True)
             all_embeddings.append(embeddings.cpu().numpy())
@@ -227,11 +267,12 @@ def visualize_embeddings(model, test_loader, label_encoder, device='cuda'):
 
 # Main function to train, evaluate, and visualize
 def main():
-    cls_features_path = 'cls_features1.pt'
-    labels_path = 'labels1.pkl'
+    data_folder = r'./cls_features/content/cls_features'  # Update with the actual path to your data folder
+
+    set_seed(42)
 
     # Load data
-    train_loader, test_loader, label_encoder = load_data(cls_features_path, labels_path)
+    train_loader, test_loader, label_encoder = load_data(data_folder)
 
     # Model configuration
     num_inputs = 768  # [CLS] token size for BERT-base
@@ -250,47 +291,21 @@ def main():
     print(f"Using device: {device}")
 
     # Train the model
-    train_tcn(model, train_loader, criterion, optimizer, num_epochs=20, device=device)
+    train_tcn(model, train_loader, criterion, optimizer, num_epochs=10, device=device)
 
     # Evaluate the model
     evaluate_tcn(model, test_loader, label_encoder, device=device)
 
     # Visualize Embeddings with t-SNE
     visualize_embeddings(model, test_loader, label_encoder, device=device)
-    
-    
-    # Path where you want to save the model
-    model_save_path = "tcn_model.pth"
-    # Save only the model's state dictionary
-    torch.save(model.state_dict(), model_save_path)
-    # Alternative: Save the Entire Model
-    # Save the entire model
-    torch.save(model, "full_tcn_model.pth")
-    
 
-
+    # # Path where you want to save the model
+    # model_save_path = "tcn_model.pth"
+    # # Save only the model's state dictionary
+    # torch.save(model.state_dict(), model_save_path)
+    # Alternative: Save the entire model
+    # torch.save(model, "full_tcn_model.pth")
 
 # Run the main function
 if __name__ == "__main__":
     main()
-
-
-
-# If you want to load the model from the saved state dictionary ()
-    # # Initialize the model structure
-    # model = TCN(num_inputs=num_inputs, num_channels=num_channels, num_classes=num_classes, kernel_size=1, dropout=0.2)
-
-    # # Load the saved model's state dictionary
-    # model.load_state_dict(torch.load(model_save_path))
-
-    # # Set the model to evaluation mode if needed
-    # model.eval()
-    
-#   Or if you want to load the entire model
-# Load the entire model
-# model = torch.load("full_tcn_model.pth")
-# model.eval()
-
-
-# all_token_features : هاي عبارة عن الفيتسر الكاملة للصوت
-# cls_features : هاي عبارة عن الفيتشر الاولى

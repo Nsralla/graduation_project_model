@@ -35,3 +35,4 @@ labels1.pkl
 tcn_model.pth
 BERT_PIPELINE/bert-base-cased_freezing_firstLayers_20_Best
 BERT_PIPELINE/bert-base-cased_freezing_firstLayers_10_BEST
+BERT_PIPELINE/cls_features
