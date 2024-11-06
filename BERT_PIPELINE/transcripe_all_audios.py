@@ -22,18 +22,29 @@ def log_error(message):
     logger.error(colored(message, 'red'))
 
 # Define the source folder for audio files
-source_folder = r"D:\audios"
+source_folder = 'D:\\Graduation_Project\\ICNALE'  # Adjust as necessary
+output_file = './transcriptions.jsonl'
 
-# Define the output file to save transcriptions
-output_file = r"./transcriptions.jsonl"
-
-# Define Whisper model and device
+# Load Whisper model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 whisper_model = whisper.load_model("medium", device=device)
 
+# Load completed filenames from the existing output file
+def load_completed_filenames(output_path):
+    completed_files = set()
+    try:
+        with open(output_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                completed_files.add(entry["filename"])
+    except FileNotFoundError:
+        log_info("Output file not found, starting fresh.")
+    return completed_files
+
+completed_filenames = load_completed_filenames(output_file)
+
 def transcribe_audio(audio_path):
     try:
-        # Attempt transcription with GPU
         with torch.no_grad():
             result = whisper_model.transcribe(audio_path, language="en")
             return result["text"]
@@ -41,15 +52,12 @@ def transcribe_audio(audio_path):
         if 'out of memory' in str(e):
             log_warning(f"Out of memory error on GPU for {audio_path}. Switching to CPU.")
             torch.cuda.empty_cache()
-
-            # Retry transcription on CPU
             whisper_model.to("cpu")
             try:
                 with torch.no_grad():
                     result = whisper_model.transcribe(audio_path, language="en")
                     return result["text"]
             finally:
-                # Move model back to GPU for subsequent tasks
                 whisper_model.to(device)
         else:
             log_error(f"Runtime error during transcription of {audio_path}: {e}")
@@ -62,15 +70,9 @@ def extract_label_from_filename(filename):
             return label
     return "Unknown"
 
-def ask_user_for_label(filename):
-    log_warning(f"Label for {filename} could not be determined. Please enter it manually:")
-    valid_labels = ["A1", "A2", "B1_1", "B1_2", "B2", "C1", "C2"]
-    while True:
-        user_input = input(f"Enter label for {filename} (options: {', '.join(valid_labels)}): ").strip()
-        if user_input in valid_labels:
-            return user_input
-        else:
-            log_error("Invalid label entered. Please try again.")
+def handle_unknown_label(filename):
+    log_warning(f"Label for {filename} could not be determined. Assigning 'Unknown' by default.")
+    return "Unknown"
 
 def save_transcription_to_file(transcription_entry, output_path):
     try:
@@ -83,13 +85,13 @@ def save_transcription_to_file(transcription_entry, output_path):
 
 def main():
     for idx, filename in enumerate(os.listdir(source_folder)):
-        if filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac', '.aac', '.ogg', '.wma')):
+        if filename not in completed_filenames and filename.lower().endswith(('.wav', '.mp3', '.m4a', '.flac', '.aac', '.ogg', '.wma')):
             audio_path = os.path.join(source_folder, filename)
             log_debug(f"Processing file {idx + 1}: {filename}")
 
             label = extract_label_from_filename(filename)
             if label == "Unknown":
-                label = ask_user_for_label(filename)
+                label = handle_unknown_label(filename)
 
             transcription_text = transcribe_audio(audio_path)
 
@@ -100,7 +102,6 @@ def main():
                     "text": transcription_text
                 }
 
-                # Save the transcription directly to the file
                 save_transcription_to_file(transcription_entry, output_file)
 
 if __name__ == "__main__":
