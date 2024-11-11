@@ -119,7 +119,7 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 train_dataset = TextDataset(train_texts, train_labels, tokenizer)
 
 # Step 9: Create DataLoader
-batch_size = 16  # Adjust based on GPU memory
+batch_size = 12  # Adjust based on GPU memory
 train_loader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
 )
@@ -139,11 +139,13 @@ model = model.to(device)
 # Unfreeze the entire model for fine-tuning
 for param in model.parameters():
     param.requires_grad = True
+# freeze the classifier head
+# freeze 8
 
 # Step 11: Set up optimizer and scheduler
 optimizer = AdamW(model.parameters(), lr=2e-5)
 
-epochs = 25  # Adjust as needed
+epochs = 15  # Adjust as needed
 total_steps = len(train_loader) * epochs
 
 scheduler = get_linear_schedule_with_warmup(

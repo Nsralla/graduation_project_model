@@ -8,6 +8,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import seaborn as sns
+from sklearn.manifold import TSNE
+import pandas as pd
+from sklearn.metrics import mean_absolute_error, roc_auc_score
+from scipy.stats import pearsonr
+import torch.nn.functional as F  # Add this import at the top
+from sklearn.metrics import cohen_kappa_score  # Add this import at the top
+
 
 # Set up random seeds for reproducibility
 def set_seed(seed):
@@ -57,7 +64,7 @@ class TemporalBlock(nn.Module):
         res = x if self.downsample is None else self.downsample(x)
         return self.relu(out + res)  # Residual connection
 
-# Define the TCN as provided
+# Define the TCN as provided with modifications
 class TCN(nn.Module):
     def __init__(self, num_inputs, num_channels, num_classes, kernel_size=3, dropout=0.2):
         """
@@ -80,14 +87,17 @@ class TCN(nn.Module):
         self.global_pool = nn.AdaptiveAvgPool1d(1)  # Global average pooling
         self.fc = nn.Linear(num_channels[-1], num_classes)
 
-    def forward(self, x):
+    def forward(self, x, return_features=False):
         """
         Forward pass for the TCN.
         """
         x = self.network(x)
         x = self.global_pool(x).squeeze(-1)  # [batch_size, num_channels]
         logits = self.fc(x)
-        return logits
+        if return_features:
+            return x, logits  # Return features and logits
+        else:
+            return logits
 
 # Define the Dataset class for pooled features
 class PooledFeatureDataset(Dataset):
@@ -150,6 +160,7 @@ class PooledFeatureDataset(Dataset):
         Returns:
             feature_tensor (torch.FloatTensor): Pooled feature tensor of shape [hidden_size, pooled_seq_len]
             label (int): Label index
+            filename (str): Filename of the sample
         """
         feature = self.features[idx]  # [pooled_seq_len, hidden_size]
         label = self.labels[idx]
@@ -171,6 +182,7 @@ def collate_fn(batch):
     Returns:
         padded_features (torch.FloatTensor): Padded feature tensors of shape [batch_size, hidden_size, max_seq_len].
         labels (torch.LongTensor): Tensor of label indices.
+        filenames (list): List of filenames.
     """
     features, labels, filenames = zip(*batch)
     
@@ -190,7 +202,7 @@ def collate_fn(batch):
     # Convert labels to tensor
     labels_tensor = torch.tensor(labels, dtype=torch.long)
 
-    return padded_features, labels_tensor
+    return padded_features, labels_tensor, filenames
 
 # Function to encode labels to integers
 def encode_labels(labels):
@@ -290,7 +302,7 @@ def train_epoch(model, device, train_loader, criterion, optimizer, epoch):
     """
     model.train()
     running_loss = 0.0
-    for batch_idx, (features, labels) in enumerate(tqdm(train_loader, desc=f'Training Epoch {epoch}')):
+    for batch_idx, (features, labels, _) in enumerate(tqdm(train_loader, desc=f'Training Epoch {epoch}')):
         features, labels = features.to(device), labels.to(device)
 
         optimizer.zero_grad()
@@ -307,60 +319,148 @@ def train_epoch(model, device, train_loader, criterion, optimizer, epoch):
     print(f"Epoch [{epoch}] Average Loss: {avg_loss:.4f}")
     return avg_loss
 
-# Evaluation function
-def evaluate(model, device, test_loader, id_to_label):
+# Evaluation function with t-SNE plotting
+def evaluate(model, device, test_loader, id_to_label, epoch, save_dir='tsne_plots'):
     """
-    Evaluates the model on the test dataset.
+    Evaluates the model on the test dataset and plots t-SNE.
 
     Args:
         model (nn.Module): The trained TCN model.
         device (torch.device): Device to run the model on.
         test_loader (DataLoader): DataLoader for testing data.
         id_to_label (dict): Mapping from integer labels to label strings.
-
+        epoch (int): Current epoch number.
+        save_dir (str): Directory to save t-SNE plots.
+    
     Returns:
         accuracy (float): Overall accuracy on the test set.
     """
     model.eval()
     all_preds = []
     all_labels = []
+    all_features = []
+    all_outputs = []  # Initialize list to collect model outputs
+
+
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
     with torch.no_grad():
-        for features, labels in tqdm(test_loader, desc='Evaluating'):
+        for features, labels, _ in tqdm(test_loader, desc='Evaluating'):
             features, labels = features.to(device), labels.to(device)
-            outputs = model(features)
+            features_output, outputs = model(features, return_features=True)
             _, preds = torch.max(outputs, 1)
 
             # Filter out unknown labels (-1)
             mask = labels != -1
             preds = preds[mask]
             labels = labels[mask]
+            features_output = features_output[mask]
+            outputs = outputs[mask]  # Apply mask to outputs
+             # Apply softmax to outputs to get probabilities
+            probabilities = F.softmax(outputs, dim=1)
 
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_features.append(features_output.cpu().numpy())
+            all_outputs.append(probabilities.cpu().numpy())  # Collect probabilities
 
+
+    # Concatenate all features
+    all_features = np.concatenate(all_features, axis=0)
+    all_outputs = np.concatenate(all_outputs, axis=0)  # Shape: [n_samples, n_classes]
+
+
+    # Apply t-SNE
+    print("Applying t-SNE on the collected features...")
+    tsne = TSNE(n_components=2, perplexity=30, n_iter=1000, random_state=42)
+    tsne_results = tsne.fit_transform(all_features)
+
+    # Create a DataFrame for plotting
+    df_tsne = pd.DataFrame({
+        'tsne-2d-one': tsne_results[:,0],
+        'tsne-2d-two': tsne_results[:,1],
+        'label': [id_to_label[label] for label in all_labels]
+    })
+
+    # Plot t-SNE
+    plt.figure(figsize=(10,8))
+    sns.scatterplot(
+        x='tsne-2d-one', y='tsne-2d-two',
+        hue='label',
+        palette=sns.color_palette("hsv", len(id_to_label)),
+        data=df_tsne,
+        legend="full",
+        alpha=0.7
+    )
+    plt.title(f't-SNE Visualization after Epoch {epoch}')
+    plt.legend(title='Classes', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plot_path = os.path.join(save_dir, f'tsne_epoch_{epoch}.png')
+    plt.savefig(plot_path)
+    plt.close()
+    print(f"t-SNE plot saved to {plot_path}")
+
+    # Calculate accuracy
     accuracy = accuracy_score(all_labels, all_preds)
     print(f"Test Accuracy: {accuracy * 100:.2f}%")
     print("\nClassification Report:")
     print(classification_report(all_labels, all_preds, target_names=[id_to_label[i] for i in range(len(id_to_label))]))
+    
+     # Mean Absolute Error (MAE)
+    mae = mean_absolute_error(all_labels, all_preds)
+    print(f"Mean Absolute Error: {mae:.4f}")
+
+    # Correlation (Pearson)
+    if len(set(all_labels)) > 1:  # Ensure there is more than one unique label
+        correlation, _ = pearsonr(all_labels, all_preds)
+        print(f"Pearson Correlation: {correlation:.4f}")
+
+    # AUC (Area Under the Curve) - One-vs-all AUC for multi-class
+     # AUC (Area Under the Curve) - One-vs-all AUC for multi-class
+    try:
+        auc = roc_auc_score(all_labels, all_outputs, multi_class='ovr')
+        print(f"AUC (One-vs-all): {auc:.4f}")
+    except ValueError as e:
+        print(f"AUC could not be calculated: {e}")
+        
+     # Weighted Kappa Score (Cohen's Kappa with Quadratic Weights)
+    try:
+        weighted_kappa = cohen_kappa_score(all_labels, all_preds, weights='quadratic')
+        print(f"Weighted Kappa Score (Quadratic): {weighted_kappa:.4f}")
+    except ValueError as e:
+        print(f"Weighted Kappa could not be calculated: {e}")
+    
+        
+    
+    # Generate classification report
+    print("\nClassification Report:")
+    print(classification_report(all_labels, all_preds, target_names=[id_to_label[i] for i in range(len(id_to_label))]))
+
 
     # Plot Confusion Matrix
     cm = confusion_matrix(all_labels, all_preds)
     plt.figure(figsize=(8,6))
-    sns.heatmap(cm, annot=True, fmt='d', xticklabels=[id_to_label[i] for i in range(len(id_to_label))],
-                yticklabels=[id_to_label[i] for i in range(len(id_to_label))], cmap='Blues')
+    sns.heatmap(cm, annot=True, fmt='d', 
+                xticklabels=[id_to_label[i] for i in range(len(id_to_label))],
+                yticklabels=[id_to_label[i] for i in range(len(id_to_label))], 
+                cmap='Blues')
     plt.xlabel('Predicted Label')
     plt.ylabel('True Label')
-    plt.title('Confusion Matrix')
-    plt.show()
+    plt.title(f'Confusion Matrix after Epoch {epoch}')
+    plt.tight_layout()
+    cm_plot_path = os.path.join(save_dir, f'confusion_matrix_epoch_{epoch}.png')
+    plt.savefig(cm_plot_path)
+    plt.close()
+    print(f"Confusion matrix plot saved to {cm_plot_path}")
 
     return accuracy
 
 # Main function
 def main():
     # Define paths to the averaged feature directories
-    training_pooled_dir = './ICNALE_features_training_pooled_dataset'  # Update if necessary
-    testing_pooled_dir = './ICNALE_features_testing_pooled_dataset'    # Update if necessary
+    training_pooled_dir = 'secondAveragingtry/ICNALE_features_training_pooled_dataset'  # Update if necessary
+    testing_pooled_dir = 'secondAveragingtry/ICNALE_features_testing_pooled_dataset'    # Update if necessary
 
     # Define valid labels
     valid_labels = {'A2', 'B1_1', 'B1_2', 'B2'}
@@ -411,7 +511,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     # Training loop
-    num_epochs = 20  # Adjust based on convergence
+    num_epochs = 6  # Adjust based on convergence
 
     best_accuracy = 0.0
     for epoch in range(1, num_epochs + 1):
@@ -420,8 +520,8 @@ def main():
         
         # Optionally, add validation here if you have a validation set
 
-        # Evaluate on test set
-        test_accuracy = evaluate(model, device, test_loader, id_to_label)
+        # Evaluate on test set and plot t-SNE
+        test_accuracy = evaluate(model, device, test_loader, id_to_label, epoch)
 
         # Save the model if it has the best accuracy so far
         if test_accuracy > best_accuracy:

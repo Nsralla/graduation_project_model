@@ -79,12 +79,12 @@ if __name__ == '__main__':
     testing_input_dir = './ICNALE_features_testing_dataset'    # Update path as necessary
 
     # Define output directories
-    training_output_dir = './ICNALE_features_training_pooled_dataset'
-    testing_output_dir = './ICNALE_features_testing_pooled_dataset'
+    training_output_dir = 'secondAveragingtry/ICNALE_features_training_pooled_dataset'
+    testing_output_dir = 'secondAveragingtry/ICNALE_features_testing_pooled_dataset'
 
     # Define pooling parameters (in milliseconds)
-    window_size_ms = 100  # Example: 100 ms window
-    stride_size_ms = 40   # Example: 40 ms stride
+    window_size_ms = 200  # Example: 100 ms window
+    stride_size_ms = 100   # Example: 40 ms stride
 
     # Pooling for training features
     print("Starting average pooling for training features...")
