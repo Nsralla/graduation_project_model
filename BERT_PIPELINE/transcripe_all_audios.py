@@ -22,8 +22,8 @@ def log_error(message):
     logger.error(colored(message, 'red'))
 
 # Define the source folder for audio files
-source_folder = 'D:\\Graduation_Project\\ICNALE'  # Adjust as necessary
-output_file = './transcriptions.jsonl'
+source_folder = r'Youtube audios categories\training youtube'  # Adjust as necessary
+output_file = 'Youtube/training_transcription.jsonl'
 
 # Load Whisper model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -64,7 +64,7 @@ def transcribe_audio(audio_path):
             return None
 
 def extract_label_from_filename(filename):
-    possible_labels = ["A1", "A2", "B1_1", "B1_2", "B2", "C1", "C2"]
+    possible_labels = ["A1", "C1", "C2"]
     for label in possible_labels:
         if label.lower() in filename.lower():
             return label

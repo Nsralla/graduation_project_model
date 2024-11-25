@@ -7,9 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
 from transformers import BertTokenizer, BertForSequenceClassification, BertConfig
-import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
-from sklearn.metrics import classification_report
+import matplotlib.pyplot as plt  # Added for plotting
 
 # Step 1: Set up random seeds for reproducibility
 def set_seed(seed):
@@ -29,7 +27,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
 
 # Step 3: Load data from JSON file
-data_file = './Icnale_training_transcription.jsonl'
+data_file = r'Youtube1\training_transcription.jsonl'
 data = []
 
 with open(data_file, 'r', encoding='utf-8') as f:
@@ -119,7 +117,7 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 train_dataset = TextDataset(train_texts, train_labels, tokenizer)
 
 # Step 9: Create DataLoader
-batch_size = 12  # Adjust based on GPU memory
+batch_size = 6  # Adjust based on GPU memory
 train_loader = DataLoader(
     train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn
 )
@@ -136,21 +134,31 @@ model = BertForSequenceClassification.from_pretrained(
 )
 model = model.to(device)
 
-# Unfreeze the entire model for fine-tuning
-for param in model.parameters():
-    param.requires_grad = True
-# freeze the classifier head
-# freeze 8
+# Freeze the first 8 layers and embeddings
+for name, param in model.named_parameters():
+    if name.startswith('bert.embeddings'):
+        param.requires_grad = False
+    elif name.startswith('bert.encoder.layer'):
+        layer_num = int(name.split('.')[3])
+        if layer_num < 6:
+            param.requires_grad = False
+        else:
+            param.requires_grad = True
+    else:
+        param.requires_grad = True
 
 # Step 11: Set up optimizer and scheduler
-optimizer = AdamW(model.parameters(), lr=2e-5)
+optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=2e-5)
 
-epochs = 15  # Adjust as needed
+epochs = 9  # Adjust as needed
 total_steps = len(train_loader) * epochs
 
 scheduler = get_linear_schedule_with_warmup(
     optimizer, num_warmup_steps=0, num_training_steps=total_steps
 )
+
+# Initialize a list to store training losses
+train_losses = []  # Added to store losses
 
 # Step 12: Define training function
 def train_epoch(model, data_loader, optimizer, scheduler, device, epoch):
@@ -197,9 +205,10 @@ for epoch in range(epochs):
     train_loss, train_acc = train_epoch(
         model, train_loader, optimizer, scheduler, device, epoch
     )
+    train_losses.append(train_loss)  # Append the loss
 
     # Save model and tokenizer after each epoch
-    output_dir = f'./bert_finetuned_epoch_{epoch + 1}'
+    output_dir = f'Youtube2/bert_finetuned_epoch_{epoch + 1}'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     model.save_pretrained(output_dir)
@@ -216,84 +225,12 @@ for epoch in range(epochs):
 
     print(f'Model and tokenizer saved to {output_dir}')
 
-# Step 14: Evaluation on training data
-model.eval()
-all_preds = []
-all_labels = []
-
-with torch.no_grad():
-    for batch in tqdm(train_loader, desc='Evaluating on Training Data'):
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        labels = batch['labels'].to(device)
-
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask
-        )
-        logits = outputs.logits
-        preds = torch.argmax(logits, dim=1)
-
-        all_preds.extend(preds.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-
-print('Classification Report on Training Data:')
-print(classification_report(
-    all_labels,
-    all_preds,
-    target_names=[id_to_label[i] for i in range(num_labels)],
-    digits=4
-))
-
-# Step 15: t-SNE Visualization using training data
-def get_model_outputs(model, data_loader, device):
-    model.eval()
-    features = []
-    labels_list = []
-    with torch.no_grad():
-        for batch in data_loader:
-            input_ids = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels_batch = batch['labels']
-
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                output_hidden_states=True,
-                return_dict=True
-            )
-
-            # Use the CLS token embeddings from the last hidden state
-            hidden_states = outputs.hidden_states[-1]
-            cls_embeddings = hidden_states[:, 0, :].cpu().numpy()  # [batch_size, hidden_size]
-            features.append(cls_embeddings)
-            labels_list.extend(labels_batch.numpy())
-
-    features = np.concatenate(features, axis=0)
-    labels_array = np.array(labels_list)
-    return features, labels_array
-
-# Get features and labels from training set
-features, labels_array = get_model_outputs(model, train_loader, device)
-
-# Apply t-SNE
-print('Applying t-SNE...')
-tsne = TSNE(n_components=2, random_state=42)
-features_2d = tsne.fit_transform(features)
-
-# Plot t-SNE visualization
-plt.figure(figsize=(12, 8))
-for label_id in np.unique(labels_array):
-    indices = labels_array == label_id
-    plt.scatter(
-        features_2d[indices, 0],
-        features_2d[indices, 1],
-        label=id_to_label[label_id],
-        alpha=0.7
-    )
-plt.legend()
-plt.title('t-SNE of BERT Embeddings on Training Data')
-plt.xlabel('t-SNE Component 1')
-plt.ylabel('t-SNE Component 2')
+# Plot the training loss over epochs
+plt.figure(figsize=(10, 6))
+plt.plot(range(1, epochs + 1), train_losses, marker='o')
+plt.title('Training Loss over Epochs')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.xticks(range(1, epochs + 1))
 plt.grid(True)
 plt.show()

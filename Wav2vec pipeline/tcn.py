@@ -14,6 +14,8 @@ from sklearn.metrics import mean_absolute_error, roc_auc_score
 from scipy.stats import pearsonr
 import torch.nn.functional as F  # Add this import at the top
 from sklearn.metrics import cohen_kappa_score  # Add this import at the top
+import re
+
 
 
 # Set up random seeds for reproducibility
@@ -100,6 +102,13 @@ class TCN(nn.Module):
             return logits
 
 # Define the Dataset class for pooled features
+
+import os
+import re
+import numpy as np
+from torch.utils.data import Dataset
+from tqdm import tqdm
+
 class PooledFeatureDataset(Dataset):
     def __init__(self, feature_dir, valid_labels):
         """
@@ -121,6 +130,10 @@ class PooledFeatureDataset(Dataset):
         Loads features and labels from the .npz files in the feature directory.
         """
         print(f"Loading features from directory: {self.feature_dir}")
+
+        # Prepare a case-insensitive label mapping
+        valid_labels_map = {label.lower(): label for label in self.valid_labels}
+
         for file in tqdm(os.listdir(self.feature_dir), desc=f'Loading {os.path.basename(self.feature_dir)}'):
             if file.endswith('.npz'):
                 file_path = os.path.join(self.feature_dir, file)
@@ -132,23 +145,21 @@ class PooledFeatureDataset(Dataset):
                     print(f"Error loading {file_path}: {e}")
                     continue
 
-                # Extract label from filename
-                parts = filename.split('_')
-                if len(parts) >= 2:
-                    potential_label = f"{parts[-2]}_{parts[-1]}"
-                    if potential_label in self.valid_labels:
-                        label = potential_label
-                    else:
-                        label = parts[-2]
-                else:
-                    label = parts[-1]  # Fallback in case of unexpected format
+                # Extract label from filename using regex
+                parts = re.split(r'[_\s()]', filename)
+                label = None
+                for part in parts:
+                    part_lower = part.lower()
+                    if part_lower in valid_labels_map:
+                        label = valid_labels_map[part_lower]
+                        break
 
-                if label in self.valid_labels:
+                if label:
                     self.features.append(feature)
                     self.labels.append(label)
                     self.filenames.append(filename)
                 else:
-                    print(f"Warning: Label '{label}' not recognized in filename '{filename}'")
+                    print(f"Warning: Label not recognized in filename '{filename}'")
 
         print(f"Total valid samples loaded: {len(self.features)}")
 
@@ -459,11 +470,11 @@ def evaluate(model, device, test_loader, id_to_label, epoch, save_dir='tsne_plot
 # Main function
 def main():
     # Define paths to the averaged feature directories
-    training_pooled_dir = 'secondAveragingtry/ICNALE_features_training_pooled_dataset'  # Update if necessary
-    testing_pooled_dir = 'secondAveragingtry/ICNALE_features_testing_pooled_dataset'    # Update if necessary
+    training_pooled_dir = r'Youtube\extracted features\training features'  # Update if necessary
+    testing_pooled_dir = r'Youtube\extracted features\testing features'    # Update if necessary
 
     # Define valid labels
-    valid_labels = {'A2', 'B1_1', 'B1_2', 'B2'}
+    valid_labels = {'A1', 'C1', 'C2'}
 
     # Prepare DataLoaders with num_workers=0
     print("\n--- Preparing DataLoaders ---")

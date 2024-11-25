@@ -1,5 +1,3 @@
-
-
 # Import statements
 import os
 import random
@@ -20,9 +18,6 @@ from dataclasses import dataclass
 from typing import Union
 import gc
 
-# Ensure matplotlib plots inline
-%matplotlib inline
-
 # Step 1: Set up random seeds for reproducibility
 def set_seed(seed):
     random.seed(seed)
@@ -41,12 +36,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
 
 # Step 3: Define the path to the audio files
-audio_dir = '/content/drive/MyDrive/Graduation/training_icnale'  # Update based on your directory in Colab
+audio_dir = r'/content/drive/MyDrive/Youtube/Audios/training youtube'  # Update based on your directory
 
 # Step 4: Extract labels from filenames
 def extract_label_from_filename(filename):
     filename = filename.lower()
-    possible_labels = ['a1', 'a2', 'b1_1', 'b1_2', 'b2', 'c1', 'c2']
+    possible_labels = ['a1', 'c1', 'c2']
 
     # Check if any known label is in the filename
     for label in possible_labels:
@@ -107,7 +102,9 @@ def preprocess_audio(data, output_dir):
                 audio_input = torch.mean(audio_input, dim=0, keepdim=True)
     
             audio_input = audio_input.squeeze()
-            processed_audio_path = os.path.join(output_dir, os.path.basename(audio_path).replace('.mp3', '.pt').replace('.wav', '.pt'))
+            processed_audio_path = os.path.join(
+                output_dir, os.path.basename(audio_path).replace('.mp3', '.pt').replace('.wav', '.pt')
+            )
             torch.save({'audio': audio_input, 'label': label}, processed_audio_path)
             processed_data.append({'audio_path': processed_audio_path, 'label_id': label})
         except Exception as e:
@@ -115,7 +112,7 @@ def preprocess_audio(data, output_dir):
     return processed_data
 
 # Preprocess audio files and save
-processed_data_dir = '/content/processed_audios'
+processed_data_dir = './processed_audios'
 processed_data = preprocess_audio(data, processed_data_dir)
 
 # Step 7: Define custom Dataset class that loads preprocessed data
@@ -170,7 +167,7 @@ model = model.to(device)
 
 # Freeze more layers in the transformer encoder to speed up training
 # For Wav2Vec2-base with 12 transformer layers, freeze first 10 layers
-for layer in model.wav2vec2.encoder.layers[:10]:
+for layer in model.wav2vec2.encoder.layers[:8]:
     for param in layer.parameters():
         param.requires_grad = False
 
@@ -182,7 +179,7 @@ for name, param in model.named_parameters():
 # Step 11: Initialize dataset and data loader
 train_dataset = PreprocessedAudioDataset(processed_data, processor)
 
-batch_size = 8  # Increased batch size for faster training
+batch_size = 6  # Adjust batch size based on your system's memory
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 train_loader = DataLoader(
@@ -190,14 +187,13 @@ train_loader = DataLoader(
     batch_size=batch_size,
     shuffle=True,
     collate_fn=data_collator,
-    num_workers=4,
     pin_memory=True
 )
 
 # Step 12: Set up optimizer and scheduler
 optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=5e-5, weight_decay=0.01)
 
-epochs = 15  # Adjusted number of epochs for faster training
+epochs = 13  # Adjust the number of epochs as needed
 total_steps = len(train_loader) * epochs
 
 scheduler = get_linear_schedule_with_warmup(
@@ -313,7 +309,6 @@ tsne = TSNE(n_components=2, random_state=42)
 features_2d = tsne.fit_transform(features)
 
 # Plot t-SNE visualization
-import matplotlib.pyplot as plt
 plt.figure(figsize=(12, 8))
 for label_id in np.unique(labels_array):
     indices = labels_array == label_id

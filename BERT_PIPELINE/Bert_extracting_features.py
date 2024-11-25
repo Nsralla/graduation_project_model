@@ -105,8 +105,8 @@ def extract_and_save_features(texts, filenames, tokenizer, model, device, output
 
 def main():
     # Configuration
-    jsonl_file = 'transcriptions.jsonl'  # Path to your JSONL file
-    output_features_dir = './extracted_features_from_ICNALE_base_model'  # Directory to save individual feature files
+    jsonl_file = r'Youtube1\testing_transcription.jsonl'  # Path to your JSONL file
+    output_features_dir = r'Youtube2\extracted_features_after_finetunning\testing features'  # Directory to save individual feature files
     batch_size = 1  
 
     # Check for GPU
@@ -118,10 +118,10 @@ def main():
 
     # Load tokenizer and model
     colored_print("Loading tokenizer and model...", 'cyan')
-    output_dir = './bert_finetuned_epoch_9'  # Directory where the model and tokenizer were saved
+    output_dir = r'Youtube2\bert_finetuned_epoch_8'  # Directory where the model and tokenizer were saved
 
     try:
-        tokenizer = BertTokenizer.from_pretrained(output_dir)
+        tokenizer = BertTokenizer.from_pretrained(output_dir)  # Use the same tokenizer used for fine-tuning
         model = BertModel.from_pretrained(output_dir)  # Use BertModel to access token embeddings
         print("Tokenizer and model loaded successfully.")
     except Exception as e:
@@ -134,7 +134,7 @@ def main():
     print(f"Number of labels: {len(labels)}")
 
     # Validate labels (optional)
-    valid_labels = {'A2', 'B1_1', 'B1_2', 'B2'}  # Update based on your actual labels
+    valid_labels = {'A1', 'C1', 'C2'}  # Update based on your actual labels
     if not all(label in valid_labels for label in labels):
         invalid_labels = set(labels) - valid_labels
         colored_print(f"Error: Some labels are invalid: {invalid_labels}", 'red')

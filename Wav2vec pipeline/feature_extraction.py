@@ -10,6 +10,9 @@ from transformers import (
 from tqdm import tqdm
 from dataclasses import dataclass
 from typing import Union
+import gc
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 # Set up random seeds for reproducibility
 def set_seed(seed):
@@ -24,7 +27,7 @@ set_seed(42)
 # Function to extract label from the filename
 def extract_label_from_filename(filename):
     filename = filename.lower()
-    possible_labels = ['a2', 'b1_1', 'b1_2', 'b2']
+    possible_labels = ['a1', 'c1', 'c2']
     for label in possible_labels:
         if label in filename:
             return label
@@ -92,26 +95,25 @@ class DataCollatorCTCWithPadding:
 
 if __name__ == '__main__':
     # Update the path to the audio files
-    audio_base_dir = r'D:\Graduation_Project\testing_icnale'
-
-    # Path to your saved model checkpoint directory
-    checkpoint_dir = './Second_try_more_freezing_layers/epoch_9'  # Update this path if necessary
+    audio_base_dir = r'Youtube\testing youtube'
 
     # Directory to save extracted features
-    feature_save_dir = './Second_try_more_freezing_layers/ICNALE_features_testing_dataset'
+    feature_save_dir = r'Youtube\extracted features\testing features'
     os.makedirs(feature_save_dir, exist_ok=True)
+    
+    output_dir = "Youtube\wav2vec2_finetuned_checkpoints\epoch_4"
 
     # Load the processor from your saved checkpoint
-    processor = Wav2Vec2Processor.from_pretrained(checkpoint_dir)
+    processor = Wav2Vec2Processor.from_pretrained(output_dir)
 
     # Load the model from your saved checkpoint
-    model = Wav2Vec2ForSequenceClassification.from_pretrained(checkpoint_dir)
+    model = Wav2Vec2ForSequenceClassification.from_pretrained(output_dir)
 
     # Set the device (GPU if available)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-    print("Model and processor loaded successfully from custom checkpoint.")
+    print("Model and processor loaded successfully.")
 
     # Build audio entries with file paths and labels
     audio_entries = []
@@ -150,8 +152,7 @@ if __name__ == '__main__':
         shuffle=False,  # No need to shuffle for feature extraction
         num_workers=1,  # Adjust based on your CPU cores
         collate_fn=data_collator,
-        pin_memory=True,
-        persistent_workers=True
+        pin_memory=True
     )
 
     # Feature extraction loop
@@ -159,28 +160,113 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         for batch in tqdm(data_loader, desc='Extracting and Saving Features'):
-            input_values = batch['input_values'].to(device, non_blocking=True)
-            filenames = batch['filenames']
+            try:
+                input_values = batch['input_values'].to(device, non_blocking=True)
+                filenames = batch['filenames']
+                labels = batch['labels']
 
-            # Forward pass with output_hidden_states=True
-            outputs = model(input_values=input_values, output_hidden_states=True)
+                # Forward pass with output_hidden_states=True
+                outputs = model(input_values=input_values, output_hidden_states=True)
 
-            # Extract the last hidden state (before the classification head)
-            hidden_states = outputs.hidden_states[-1]  # Shape: [batch_size, seq_len, hidden_size]
+                # Extract the last hidden state (before the classification head)
+                hidden_states = outputs.hidden_states[-1]  # Shape: [batch_size, seq_len, hidden_size]
 
-            # Iterate over the batch and save features individually
-            for i in range(len(filenames)):
-                audio_feature = hidden_states[i].cpu().numpy()  # Shape: [seq_len, hidden_size]
-                filename = filenames[i]
-                filename_no_ext = os.path.splitext(filename)[0]
-                save_filename = f"{filename_no_ext}.npz"
-                save_path = os.path.join(feature_save_dir, save_filename)
+                # Iterate over the batch and save features individually
+                for i in range(len(filenames)):
+                    audio_feature = hidden_states[i].cpu().numpy()  # Shape: [seq_len, hidden_size]
+                    filename = filenames[i]
+                    filename_no_ext = os.path.splitext(filename)[0]
+                    save_filename = f"{filename_no_ext}.npz"
+                    save_path = os.path.join(feature_save_dir, save_filename)
 
-                # Save the feature to a .npz file
-                np.savez_compressed(
-                    save_path,
-                    feature=audio_feature,  # Shape: [seq_len, hidden_size]
-                    filename=filename_no_ext
-                )
+                    # Save the feature to a .npz file
+                    np.savez_compressed(
+                        save_path,
+                        feature=audio_feature,  # Shape: [seq_len, hidden_size]
+                        filename=filename_no_ext,
+                        label=labels[i].item()
+                    )
+
+                # Clean up
+                del input_values, outputs, hidden_states
+                torch.cuda.empty_cache()
+                gc.collect()
+
+            except torch.cuda.OutOfMemoryError:
+                print("Out of memory on GPU. Trying to process batch on CPU.")
+                torch.cuda.empty_cache()
+                gc.collect()
+                # Move model and data to CPU
+                model_cpu = model.to('cpu')
+                input_values_cpu = batch['input_values'].to('cpu', non_blocking=True)
+                labels = batch['labels']
+                # Process on CPU
+                outputs = model_cpu(input_values=input_values_cpu, output_hidden_states=True)
+
+                hidden_states = outputs.hidden_states[-1]  # Shape: [batch_size, seq_len, hidden_size]
+
+                for i in range(len(filenames)):
+                    audio_feature = hidden_states[i].numpy()  # On CPU
+                    filename = filenames[i]
+                    filename_no_ext = os.path.splitext(filename)[0]
+                    save_filename = f"{filename_no_ext}.npz"
+                    save_path = os.path.join(feature_save_dir, save_filename)
+
+                    # Save the feature to a .npz file
+                    np.savez_compressed(
+                        save_path,
+                        feature=audio_feature,  # Shape: [seq_len, hidden_size]
+                        filename=filename_no_ext,
+                        label=labels[i].item()
+                    )
+
+                # Clean up
+                del input_values_cpu, outputs, hidden_states
+                gc.collect()
+                # Move model back to device
+                model = model_cpu.to(device)
+                torch.cuda.empty_cache()
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                # Handle other exceptions if needed
 
     print("Feature extraction and saving complete.")
+
+    # Load extracted features and apply t-SNE
+    print("Loading extracted features for t-SNE visualization...")
+
+    # Collect all feature files
+    feature_files = [os.path.join(feature_save_dir, f) for f in os.listdir(feature_save_dir) if f.endswith('.npz')]
+
+    features_list = []
+    labels_list = []
+
+    for feature_file in tqdm(feature_files, desc='Loading Features'):
+        data = np.load(feature_file)
+        feature = data['feature']  # Shape: [seq_len, hidden_size]
+        filename = data['filename']
+        label_id = data['label']
+        # Optionally, we can pool the features over time, e.g., take the mean over time
+        feature_pooled = feature.mean(axis=0)  # Shape: [hidden_size]
+        features_list.append(feature_pooled)
+        labels_list.append(label_id)
+
+    features_array = np.stack(features_list)
+    labels_array = np.array(labels_list)
+
+    # Apply t-SNE
+    print("Applying t-SNE...")
+    tsne = TSNE(n_components=2, random_state=42)
+    features_2d = tsne.fit_transform(features_array)
+
+    # Plotting
+    plt.figure(figsize=(12, 8))
+    for label_id in np.unique(labels_array):
+        indices = labels_array == label_id
+        plt.scatter(features_2d[indices, 0], features_2d[indices, 1], label=id_to_label[label_id], alpha=0.7)
+    plt.legend()
+    plt.title('t-SNE of Extracted Features')
+    plt.xlabel('t-SNE Component 1')
+    plt.ylabel('t-SNE Component 2')
+    plt.grid(True)
+    plt.show()

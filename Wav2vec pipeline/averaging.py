@@ -75,12 +75,12 @@ def average_pool_features(input_dir, output_dir, window_size_ms=100, stride_size
 
 if __name__ == '__main__':
     # Define input directories
-    training_input_dir = './ICNALE_features_training_dataset'  # Update path as necessary
-    testing_input_dir = './ICNALE_features_testing_dataset'    # Update path as necessary
+    training_input_dir ='Wav2vec_without_finetuning\ICNALE_features_training_dataset'   # Update path as necessary
+    testing_input_dir = 'Wav2vec_without_finetuning\ICNALE_features_testing_dataset'    # Update path as necessary
 
     # Define output directories
-    training_output_dir = 'secondAveragingtry/ICNALE_features_training_pooled_dataset'
-    testing_output_dir = 'secondAveragingtry/ICNALE_features_testing_pooled_dataset'
+    training_output_dir = 'Wav2vec_without_finetuning\ICNALE_features_training_pooled_dataset'
+    testing_output_dir = 'Wav2vec_without_finetuning\ICNALE_features_testing_pooled_dataset'
 
     # Define pooling parameters (in milliseconds)
     window_size_ms = 200  # Example: 100 ms window

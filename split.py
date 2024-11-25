@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 
 # Function to extract label from filename
-def extract_label_from_filename(filename, labels=['A2', 'B1_1', 'B1_2', 'B2']):
+def extract_label_from_filename(filename, labels=['A1', 'C1', 'C2']):
     """
     Extracts the label from the filename based on predefined labels.
 
@@ -25,9 +25,9 @@ def extract_label_from_filename(filename, labels=['A2', 'B1_1', 'B1_2', 'B2']):
     return None
 
 # Set your dataset directory, train, and test directories
-data_dir = 'D:\\Graduation_Project\\ICNALE'
-train_dir = 'D:\\Graduation_Project\\training_icnale'
-test_dir = 'D:\\Graduation_Project\\testing_icnale'
+data_dir = r'D:\Graduation_Project\Youtube Audios'
+train_dir = r'Youtube audios categories\training youtube'
+test_dir = r'Youtube audios categories\testing youtube'
 test_size = 0.2
 random_seed = 42
 
@@ -49,9 +49,14 @@ for file in train_files:
 for file in test_files:
     shutil.copy(os.path.join(data_dir, file), os.path.join(test_dir, file))
 
+# Function to count files in a folder
+def count_files_in_folder(folder_path):
+    return len([f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))])
+
 # Create histograms of labels in each folder
 def plot_label_histogram(files, folder_name):
     labels = [extract_label_from_filename(f) for f in files]
+    labels = [label for label in labels if label is not None]
     label_counts = Counter(labels)
     
     plt.figure()
@@ -65,5 +70,19 @@ def plot_label_histogram(files, folder_name):
 plot_label_histogram(train_files, 'Training')
 plot_label_histogram(test_files, 'Testing')
 
-print(f"Training files: {len(train_files)}")
-print(f"Testing files: {len(test_files)}")
+# Count files in each folder
+main_folder_count = count_files_in_folder(data_dir)
+train_folder_count = count_files_in_folder(train_dir)
+test_folder_count = count_files_in_folder(test_dir)
+
+# Verify and print counts
+print(f"Total files in the main folder: {main_folder_count}")
+print(f"Training files: {train_folder_count}")
+print(f"Testing files: {test_folder_count}")
+
+# Check if all files were processed
+processed_files_count = train_folder_count + test_folder_count
+if processed_files_count == len(all_files):
+    print("All files have been successfully processed and moved to training and testing folders.")
+else:
+    print(f"Warning: Discrepancy detected! Processed files: {processed_files_count}, but expected: {len(all_files)}")

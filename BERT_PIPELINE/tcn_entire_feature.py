@@ -19,6 +19,9 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+from sklearn.metrics import roc_auc_score
+import torch.nn.functional as F
+import numpy as np
 
 # ----------------------------
 # 1. Setting Random Seeds for Reproducibility
@@ -116,7 +119,7 @@ class TCN(nn.Module):
 
 def extract_label_from_filename(filename):
     filename = filename.lower()
-    possible_labels = ['a2', 'b1_1', 'b1_2', 'b2']
+    possible_labels = ['a1', 'c1', 'c2']
 
     # Check if any known label is in the filename
     for label in possible_labels:
@@ -218,14 +221,14 @@ def load_data(training_features_dir, testing_features_dir):
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=16,
+        batch_size=6,
         shuffle=True,
         collate_fn=collate_fn
     )
 
     test_loader = DataLoader(
         test_dataset,
-        batch_size=16,
+        batch_size=6,
         shuffle=False,
         collate_fn=collate_fn
     )
@@ -267,14 +270,17 @@ def train_tcn(model, train_loader, criterion, optimizer, num_epochs=20, device='
 # 8. Evaluation Function
 # ----------------------------
 
+
+
 def evaluate_tcn(model, test_loader, label_encoder, device='cuda'):
     """
-    Evaluate the TCN model on the test set.
+    Evaluate the TCN model on the test set and calculate AUC.
     """
     model.to(device)
     model.eval()
     all_preds = []
     all_labels = []
+    all_probs = []
 
     with torch.no_grad():
         for inputs, labels in test_loader:
@@ -282,9 +288,12 @@ def evaluate_tcn(model, test_loader, label_encoder, device='cuda'):
 
             # Forward pass
             outputs = model(inputs)
+            probs = F.softmax(outputs, dim=1)  # Convert logits to probabilities
             _, predicted = torch.max(outputs, 1)
+
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_probs.extend(probs.cpu().numpy())  # Store probabilities for AUC calculation
 
     # Classification Report
     class_names = label_encoder.classes_
@@ -298,11 +307,11 @@ def evaluate_tcn(model, test_loader, label_encoder, device='cuda'):
     plt.show()
 
     # Additional Metrics
-    calculate_additional_metrics(all_labels, all_preds, label_encoder)
+    calculate_additional_metrics(all_labels, all_preds, all_probs, label_encoder)
 
-def calculate_additional_metrics(all_labels, all_preds, label_encoder):
+def calculate_additional_metrics(all_labels, all_preds, all_probs, label_encoder):
     """
-    Calculate and display additional classification metrics including WK, Corr, and MAE.
+    Calculate and display additional classification metrics including AUC, WK, Corr, and MAE.
     """
     # Calculate Precision, Recall, and F1-Score
     precision, recall, f1, support = precision_recall_fscore_support(
@@ -317,6 +326,13 @@ def calculate_additional_metrics(all_labels, all_preds, label_encoder):
 
     # Mean Absolute Error (MAE)
     mae = mean_absolute_error(all_labels, all_preds)
+
+    # AUC (Area Under Curve)
+    try:
+        auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')  # One-vs-rest AUC
+        print(f"AUC (One-vs-all): {auc:.4f}")
+    except ValueError:
+        print("AUC could not be calculated due to insufficient data or single-class predictions.")
 
     # Display the metrics
     print(f"\nWeighted Kappa (WK): {wk:.4f}")
@@ -334,6 +350,7 @@ def calculate_additional_metrics(all_labels, all_preds, label_encoder):
 
     print("\nAdditional Classification Metrics:")
     print(metrics_df)
+
 # ----------------------------
 # 9. Visualization Function
 # ----------------------------
@@ -404,8 +421,8 @@ def main():
     set_seed(42)
 
     # Paths to data directories
-    training_features_dir = 'training_features_Icnale_base_model'
-    testing_features_dir = 'testing_features_Icnale_base_model'
+    training_features_dir = r'Youtube2\extracted_features_after_finetunning\training features'
+    testing_features_dir = r'Youtube2\extracted_features_after_finetunning\testing features'
 
     # Load Data
     train_loader, test_loader, label_encoder = load_data(
@@ -440,7 +457,7 @@ def main():
         train_loader=train_loader,
         criterion=criterion,
         optimizer=optimizer,
-        num_epochs=8,
+        num_epochs=10,
         device=device
     )
 
@@ -465,7 +482,7 @@ def main():
         model=model,
         optimizer=optimizer,
         label_encoder=label_encoder,
-        filename='full_features_tcn_model_icnale_dataset.pth'
+        filename='full_features_tcn_model_icnale_dataset2.pth'
     )
 
 # ----------------------------

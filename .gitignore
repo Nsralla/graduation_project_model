@@ -54,3 +54,9 @@ epoch_13
 Icnale_testing_transcription.jsonl
 Icnale_training_transcription.jsonl
 BERT_PIPELINE\transcriptions.jsonl
+BERT_PIPELINE/ICNALE
+BERT_PIPELINE/Youtube1
+BERT_PIPELINE/Youtube2
+Wav2vec pipeline/processed_audios
+Wav2vec pipeline/Youtube
+BERT_PIPELINE/full_features_tcn_model_icnale_dataset2.pth
